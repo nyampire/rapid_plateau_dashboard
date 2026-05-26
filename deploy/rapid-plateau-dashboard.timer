@@ -2,11 +2,11 @@
 Description=Weekly schedule for the Rapid Plateau dashboard batch
 
 [Timer]
-# Weekly, Sunday 02:00 in the system's local timezone. The batch runs for a few
+# Weekly, Sunday 01:00 in the system's local timezone. The batch runs for a few
 # hours, so pick a start time that finishes BEFORE any daily maintenance window
 # (e.g. a package-update-driven service restart). Confirm the host timezone and
 # adjust OnCalendar accordingly.
-OnCalendar=Sun *-*-* 02:00:00
+OnCalendar=Sun *-*-* 01:00:00
 Persistent=true
 RandomizedDelaySec=300
 
