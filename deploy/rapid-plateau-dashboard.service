@@ -1,0 +1,23 @@
+[Unit]
+Description=Rapid Plateau dashboard weekly aggregation batch
+Documentation=https://github.com/nyampire/rapid_plateau_dashboard
+After=network-online.target postgresql.service
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+# Run as the account that owns the install + DB access (NOT root).
+# User=youruser
+
+# Provide DATABASE_URL / DASH_* (see dashboard-batch.env.example). Keep this
+# file outside the repo, chmod 600 — it holds the DB password.
+EnvironmentFile=/etc/rapid-plateau-dashboard.env
+
+# Adjust to your install path.
+WorkingDirectory=/opt/rapid_plateau_dashboard
+ExecStart=/opt/rapid_plateau_dashboard/deploy/run_weekly.sh
+
+# The full run can take a few hours; be a good neighbour to the live API/DB.
+TimeoutStartSec=4h
+Nice=10
+IOSchedulingClass=idle

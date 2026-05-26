@@ -65,6 +65,28 @@ pip install -r requirements-dev.txt
 pytest            # DB 非依存の単体テスト（wiki パーサ / DB 接続文字列の組み立て）
 ```
 
+## 週次自動化（デプロイ）
+
+`run_batch.sh` を週次実行する systemd timer のテンプレートを `deploy/` に同梱:
+
+- `deploy/run_weekly.sh` — env 駆動の薄いラッパ（venv 有効化 → `run_batch.sh`）
+- `deploy/rapid-plateau-dashboard.service` / `.timer` — oneshot service + 週次 timer（`Persistent=true`）
+- `deploy/dashboard-batch.env.example` — `DATABASE_URL` ほか設定例（実値は repo 外に置く）
+
+```bash
+# 1. 設定ファイル（DB パスワードを含むので repo 外・600）
+sudo cp deploy/dashboard-batch.env.example /etc/rapid-plateau-dashboard.env
+sudo chmod 600 /etc/rapid-plateau-dashboard.env   # DATABASE_URL 等を記入
+# 2. unit の WorkingDirectory / ExecStart / User を環境に合わせて編集
+sudo cp deploy/rapid-plateau-dashboard.service deploy/rapid-plateau-dashboard.timer /etc/systemd/system/
+sudo systemctl daemon-reload
+sudo systemctl enable --now rapid-plateau-dashboard.timer
+systemctl list-timers rapid-plateau-dashboard.timer   # 次回実行時刻を確認
+journalctl -u rapid-plateau-dashboard.service -f      # ログ
+```
+
+> バッチは数時間かかるため、開始時刻は日次メンテナンス（例: パッケージ更新によるサービス再起動）の時間帯を跨がないこと。ホストのタイムゾーンを確認のうえ `OnCalendar` を調整する。単発確認は `sudo systemctl start rapid-plateau-dashboard.service`。
+
 ## データソース
 
 | ソース | 用途 |
