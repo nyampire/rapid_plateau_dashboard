@@ -1,0 +1,165 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Rapid Plateau 進捗ダッシュボード</title>
+  <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css">
+  <link rel="stylesheet" href="style.css?v=8">
+</head>
+<body>
+  <header class="topbar">
+    <div>
+      <h1>Rapid Plateau 進捗ダッシュボード</h1>
+    </div>
+    <div class="topbar-right">
+      <a class="rapid-link" href="https://rapid.nyampire.info/" target="_blank" rel="noopener"
+         title="OSMへの建物インポート作業を行うエディタ Rapid Plateau を別タブで開く">
+        <img class="rapid-ico" src="rapid_favicon.svg" alt="">
+        <span>Rapid Plateau で編集</span>
+        <span class="ext">↗</span>
+      </a>
+    </div>
+  </header>
+
+  <!-- Hero KPIs -->
+  <section class="kpis">
+    <div class="kpi kpi-primary">
+      <div class="kpi-label">建物カバレッジ率</div>
+      <div class="kpi-value"><span id="kpi-rate">—</span><span class="unit">%</span>
+        <span class="delta" id="kpi-delta"></span></div>
+      <div class="formula" id="f-rate"></div>
+      <div class="kpi-def">OSM に建物が存在する Plateau 建物の割合（Plateau 公開前からあった建物も含む）。実際のインポート作業の状況は <b>インポート作業</b> 列で確認。</div>
+    </div>
+    <div class="kpi">
+      <div class="kpi-label">都市カバレッジ</div>
+      <div class="kpi-value"><span id="kpi-cities">—</span></div>
+      <div class="formula" id="f-cities"></div>
+      <div class="kpi-def">Rapid Plateau の作業対象とした都市の割合。</div>
+    </div>
+    <div class="kpi">
+      <div class="kpi-label">OSMインポート完了都市数 (wiki)</div>
+      <div class="kpi-value"><span id="kpi-done">—</span></div>
+      <div class="formula" id="f-done"></div>
+      <div class="kpi-def">OSM wiki で公式に「インポート完了」とされた都市。</div>
+    </div>
+  </section>
+
+  <!-- Metric definitions + formulas -->
+  <details class="defs">
+    <summary>指標の意味と計算方法</summary>
+    <div class="defs-body">
+      <p class="defs-intro">国土交通省の「Plateau」が整備した建物データが、市民地図の OpenStreetMap（OSM）にどれだけ反映されているかを示すダッシュボードです。用語の意味と計算方法は以下のとおりです。</p>
+      <table class="def-table">
+        <thead><tr><th>用語</th><th>意味</th><th>計算方法</th></tr></thead>
+        <tbody>
+          <tr>
+            <td>建物カバレッジ率</td>
+            <td>Plateau の建物のうち、同じ場所に OSM にも建物が存在する割合。地図づくりの進み具合の目安です。
+              <div class="note">※ この指標は、OSM に建物が存在しているかどうかの判定を行います。そのため、<b>Plateau 公開より前から OSM にあった建物も数に含まれます</b>。Plateau データを使った実際のインポート作業が行われたかは「インポート作業」列で確認してください。</div></td>
+            <td>OSM に建物が存在する Plateau 建物の数 / Plateau 建物の総数 × 100</td>
+          </tr>
+          <tr>
+            <td>「OSM に建物が存在する」と判定する条件</td>
+            <td>Plateau 建物の代表点（建物内のある 1 点）が OSM の建物の内側にある、または 2 つの建物の重なりが面積の 30% を超えるとき、その Plateau 建物は「OSM に存在する」とみなします。</td>
+            <td>代表点が OSM 建物の内側 ／ または 重なり面積が Plateau 建物面積の 30% 超</td>
+          </tr>
+          <tr>
+            <td>Plateau 建物の数えかた</td>
+            <td>建物 1 棟（外形）を 1 件として数えます。3D 表示のための部分パーツ（階や屋根などの区切り）は数えません。</td>
+            <td>建物 1 棟 ＝ 1 件（部分パーツは除外）</td>
+          </tr>
+          <tr>
+            <td>都市カバレッジ</td>
+            <td>Plateau が建物データを提供している都市のうち、Rapid Plateau の作業対象とした都市の割合。</td>
+            <td>Rapid Plateau作業対象都市数 / Plateauデータセット数（306）</td>
+          </tr>
+          <tr>
+            <td>OSMインポート完了都市数（OSM wiki）</td>
+            <td>OSM コミュニティの公式ページ（wiki）で「インポート完了」と記録された都市の数。実際の作業完了の公式な基準です。</td>
+            <td>インポート完了都市数 / Plateauデータセット数（306）</td>
+          </tr>
+          <tr>
+            <td>「未計測」「Rapid対象外」</td>
+            <td><b>未計測</b>＝Rapid Plateau の作業対象（Rapid対象）だが、OSM との照合（率の計算）をまだ行っていない都市。<br>
+              <b>Rapid対象外</b>＝Rapid Plateau の作業対象ではない都市。Plateau データが無いため率を出せません。</td>
+            <td class="muted">該当する都市は率を空欄表示</td>
+          </tr>
+        </tbody>
+      </table>
+    </div>
+  </details>
+
+  <div class="main">
+    <div class="left">
+      <!-- Region summary -->
+      <section class="panel">
+        <h2>地方別サマリ <span class="muted">（カードをクリックで一覧を絞り込み）</span></h2>
+        <div id="regions" class="region-grid"></div>
+      </section>
+
+      <!-- City table -->
+      <section class="panel">
+        <div class="table-head">
+          <h2>市区町村一覧</h2>
+          <div class="filters">
+            <select id="f-region"></select>
+            <select id="f-status">
+              <option value="">状態: すべて</option>
+              <option value="measured">計測済</option>
+              <option value="in_db">Rapid対象</option>
+              <option value="not_in_db">Rapid対象外</option>
+              <option value="done">インポート完了</option>
+            </select>
+            <input id="f-search" type="search" placeholder="🔍 都市名">
+          </div>
+        </div>
+        <div class="table-wrap">
+          <table id="cities">
+            <thead>
+              <tr>
+                <th data-sort="city_code"><span class="thlabel">コード<span class="arr"></span></span><div class="sub">市区町村コード</div></th>
+                <th data-sort="city_name"><span class="thlabel">都市<span class="arr"></span></span></th>
+                <th data-sort="region"><span class="thlabel">地方<span class="arr"></span></span></th>
+                <th data-sort="import_rate" class="num"><span class="thlabel">建物カバレッジ率<span class="arr"></span></span><div class="sub">OSMに存在する建物 / Plateau棟数</div></th>
+                <th data-sort="intersecting_count" class="num"><span class="thlabel">OSMに存在する建物<span class="arr"></span></span><div class="sub">Plateau建物のうちOSMに存在する数</div></th>
+                <th data-sort="plateau_count" class="num"><span class="thlabel">Plateau棟数<span class="arr"></span></span><div class="sub">Plateau建物の総数</div></th>
+                <th data-sort="osm_import_status"><span class="thlabel">インポート作業<span class="arr"></span></span><div class="sub">OSM wikiの記録</div></th>
+              </tr>
+            </thead>
+            <tbody id="cities-body"></tbody>
+          </table>
+        </div>
+        <div class="count" id="row-count"></div>
+      </section>
+    </div>
+
+    <aside class="right">
+      <section class="panel map-panel">
+        <h2>補助地図 <span class="muted">（率で色分け・クリックで詳細）</span></h2>
+        <div id="map"></div>
+        <div class="legend" id="legend"></div>
+      </section>
+    </aside>
+  </div>
+
+  <footer class="pagefoot">
+    最終更新 <span id="updated">—</span>
+    ・ 建物データ: <a href="https://www.mlit.go.jp/plateau/" target="_blank" rel="noopener">国土交通省 PLATEAU</a>
+    ・ 地図・OSM 建物: &copy; <a href="https://www.openstreetmap.org/copyright" target="_blank" rel="noopener">OpenStreetMap contributors</a>
+  </footer>
+
+  <!-- Detail drawer -->
+  <div id="drawer" class="drawer hidden">
+    <button class="drawer-close" id="drawer-close">×</button>
+    <div id="drawer-body"></div>
+  </div>
+  <div id="scrim" class="scrim hidden"></div>
+
+  <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+  <!-- API base: same-origin /api/dashboard by default; override for dev via ?api=<base-url> -->
+  <script>window.DASH_API_BASE = new URLSearchParams(location.search).get("api") || "/api/dashboard";</script>
+  <script src="data.js?v=8"></script>
+  <script src="app.js?v=8"></script>
+</body>
+</html>

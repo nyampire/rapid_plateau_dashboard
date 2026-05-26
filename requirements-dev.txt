@@ -1,0 +1,3 @@
+# Dev/test dependencies. Runtime deps (psycopg2 etc.) come from api/requirements.txt.
+-r api/requirements.txt
+pytest>=8,<10

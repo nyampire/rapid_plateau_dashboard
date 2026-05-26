@@ -1,0 +1,151 @@
+#!/usr/bin/env python3
+"""Read-only API for the Rapid Plateau progress dashboard.
+
+Serves /api/dashboard/* from the dash_* tables (and plateau_coverage). Returns
+JSON assembled in-database (json_build_object / json_agg) so handlers are thin.
+
+Exposes both an APIRouter (`router`) for mounting into an existing FastAPI app
+and a standalone `app` for `uvicorn dashboard_api:app`.
+
+Env:  DATABASE_URL   PostgreSQL connection string (read-only use)
+Run:  DATABASE_URL=... uvicorn dashboard_api:app --port 8000
+"""
+import os
+
+import psycopg2
+from fastapi import APIRouter, FastAPI, HTTPException
+from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import JSONResponse
+
+router = APIRouter(prefix="/api/dashboard")
+
+
+def fetch_one_json(sql, params=None):
+    """Run a query whose first column is a single JSON value; return it (or None)."""
+    url = os.environ.get("DATABASE_URL")
+    if not url:
+        raise HTTPException(status_code=500, detail="DATABASE_URL not configured")
+    conn = psycopg2.connect(url)
+    try:
+        with conn.cursor() as cur:
+            cur.execute(sql, params or {})
+            row = cur.fetchone()
+            return row[0] if row else None
+    finally:
+        conn.close()
+
+
+SUMMARY_SQL = """
+SELECT json_build_object(
+  'overall_rate',       (SELECT overall_rate FROM dash_progress_history ORDER BY computed_at DESC LIMIT 1),
+  'prev_rate',          (SELECT overall_rate FROM dash_progress_history ORDER BY computed_at DESC OFFSET 1 LIMIT 1),
+  'total_plateau',      (SELECT total_plateau FROM dash_progress_history ORDER BY computed_at DESC LIMIT 1),
+  'total_intersecting', (SELECT total_intersecting FROM dash_progress_history ORDER BY computed_at DESC LIMIT 1),
+  'cities_total',       (SELECT count(*) FROM dash_city_master),
+  'cities_in_db',       (SELECT count(*) FROM dash_city_master WHERE in_local_db),
+  'cities_osm_done',    (SELECT count(*) FROM dash_city_master WHERE osm_import_status='done'),
+  'cities_measured',    (SELECT count(*) FROM dash_city_stats),
+  'computed_at',        (SELECT to_char(computed_at,'YYYY-MM-DD') FROM dash_progress_history ORDER BY computed_at DESC LIMIT 1),
+  'trend',              (SELECT json_agg(json_build_object('date', to_char(computed_at,'YYYY-MM-DD'), 'rate', overall_rate))
+                         FROM (SELECT computed_at, overall_rate FROM dash_progress_history ORDER BY computed_at) s)
+);
+"""
+
+REGIONS_SQL = """
+SELECT COALESCE(json_agg(r), '[]'::json) FROM (
+  SELECT m.region,
+    count(*) AS cities_total,
+    count(*) FILTER (WHERE m.in_local_db) AS cities_in_db,
+    count(*) FILTER (WHERE m.osm_import_status='done') AS cities_done,
+    count(s.city_code) AS cities_measured,
+    sum(s.plateau_count) AS plateau,
+    sum(s.intersecting_count) AS intersecting,
+    round(100.0*sum(s.intersecting_count)/NULLIF(sum(s.plateau_count),0), 1) AS rate
+  FROM dash_city_master m
+  LEFT JOIN dash_city_stats s ON s.city_code = m.city_code
+  GROUP BY m.region
+  ORDER BY MIN(m.city_code)
+) r;
+"""
+
+# city fields shared by /cities and /cities/{code}
+CITY_COLS = """
+  m.city_code, m.city_name, m.prefecture, m.region, m.building_lods, m.spec_versions,
+  m.in_local_db, m.osm_import_status,
+  to_char(m.osm_import_date,'YYYY-MM-DD') AS osm_import_date, m.osm_validated,
+  s.plateau_count, s.osm_count, s.intersecting_count, s.import_rate
+"""
+
+CITIES_SQL = f"""
+SELECT COALESCE(json_agg(c), '[]'::json) FROM (
+  SELECT {CITY_COLS}
+  FROM dash_city_master m
+  LEFT JOIN dash_city_stats s ON s.city_code = m.city_code
+  WHERE (%(region)s IS NULL OR m.region = %(region)s)
+  ORDER BY m.city_code
+) c;
+"""
+
+CITY_ONE_SQL = f"""
+SELECT to_jsonb(c) FROM (
+  SELECT {CITY_COLS}
+  FROM dash_city_master m
+  LEFT JOIN dash_city_stats s ON s.city_code = m.city_code
+  WHERE m.city_code = %(code)s
+) c;
+"""
+
+GEOJSON_SQL = """
+SELECT json_build_object('type','FeatureCollection','features', COALESCE(json_agg(f), '[]'::json))
+FROM (
+  SELECT json_build_object('type','Feature',
+    'properties', json_build_object('city_code', cov.city_code, 'city_name', m.city_name,
+                                    'import_rate', s.import_rate),
+    'geometry', ST_AsGeoJSON(ST_SimplifyPreserveTopology(cov.geom, 0.001))::json) AS f
+  FROM plateau_coverage cov
+  LEFT JOIN dash_city_master m ON m.city_code = cov.city_code
+  LEFT JOIN dash_city_stats s ON s.city_code = cov.city_code
+) x;
+"""
+
+
+@router.get("/summary")
+def summary():
+    return fetch_one_json(SUMMARY_SQL)
+
+
+@router.get("/regions")
+def regions():
+    return fetch_one_json(REGIONS_SQL)
+
+
+@router.get("/cities")
+def cities(region: str | None = None):
+    return fetch_one_json(CITIES_SQL, {"region": region})
+
+
+@router.get("/cities.geojson")
+def cities_geojson():
+    return JSONResponse(fetch_one_json(GEOJSON_SQL))
+
+
+@router.get("/cities/{city_code}")
+def city(city_code: str):
+    data = fetch_one_json(CITY_ONE_SQL, {"code": city_code})
+    if data is None:
+        raise HTTPException(status_code=404, detail=f"city_code {city_code} not found")
+    return data
+
+
+app = FastAPI(title="Rapid Plateau Dashboard API", version="0.1")
+# CORS applies only to this standalone `app` (dev / `uvicorn dashboard_api:app`);
+# in production the router is mounted same-origin behind nginx, so CORS is moot.
+# Read-only public data, so origins default to "*"; set DASH_CORS_ORIGINS to restrict.
+_cors_origins = [o.strip() for o in os.environ.get("DASH_CORS_ORIGINS", "*").split(",") if o.strip()]
+app.add_middleware(CORSMiddleware, allow_origins=_cors_origins, allow_methods=["GET"], allow_headers=["*"])
+app.include_router(router)
+
+
+@app.get("/health")
+def health():
+    return {"status": "ok"}
