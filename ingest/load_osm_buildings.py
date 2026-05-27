@@ -43,6 +43,31 @@ def ogr_pg(url):
     return "PG:" + " ".join(parts), env
 
 
+def decode_select_sql(staging):
+    """SELECT that decodes osmium 'a<num>' ids to (osm_type, osm_id) and assigns a
+    city_code via the plateau_coverage polygon containing the building's
+    representative point. Buildings outside every coverage polygon are dropped;
+    only POLYGON/MULTIPOLYGON rows are kept and stored as valid geometry."""
+    return f"""
+        SELECT cov.city_code,
+               CASE WHEN s.n % 2 = 0 THEN 'w' ELSE 'r' END AS osm_type,
+               CASE WHEN s.n % 2 = 0 THEN s.n / 2 ELSE (s.n - 1) / 2 END AS osm_id,
+               s.geom
+        FROM (
+          SELECT (substring(id from 2))::bigint AS n,
+                 ST_MakeValid(ST_Multi(geom)) AS geom,
+                 ST_PointOnSurface(geom) AS pt
+          FROM {staging}
+          WHERE GeometryType(geom) IN ('POLYGON', 'MULTIPOLYGON')
+            AND id ~ '^[a-z][0-9]+$'
+        ) s
+        JOIN LATERAL (
+          SELECT city_code FROM plateau_coverage cov
+          WHERE ST_Contains(cov.geom, s.pt) LIMIT 1
+        ) cov ON true
+    """
+
+
 def main():
     ap = argparse.ArgumentParser(description="Load OSM buildings GeoJSONSeq into dash_osm_buildings.")
     ap.add_argument("geojsonseq")
@@ -65,25 +90,8 @@ def main():
         with conn, conn.cursor() as cur:
             # Decode osm type/id and assign one city via coverage (overlapping hulls -> pick one).
             t1 = time.time()
-            cur.execute(f"""
-                CREATE TEMP TABLE _decoded ON COMMIT DROP AS
-                SELECT cov.city_code,
-                       CASE WHEN s.n % 2 = 0 THEN 'w' ELSE 'r' END AS osm_type,
-                       CASE WHEN s.n % 2 = 0 THEN s.n / 2 ELSE (s.n - 1) / 2 END AS osm_id,
-                       s.geom
-                FROM (
-                  SELECT (substring(id from 2))::bigint AS n,
-                         ST_MakeValid(ST_Multi(geom)) AS geom,  -- store valid geometry (avoids GEOS errors downstream)
-                         ST_PointOnSurface(geom) AS pt
-                  FROM {STAGING}
-                  WHERE GeometryType(geom) IN ('POLYGON', 'MULTIPOLYGON')
-                    AND id ~ '^[a-z][0-9]+$'
-                ) s
-                JOIN LATERAL (
-                  SELECT city_code FROM plateau_coverage cov
-                  WHERE ST_Contains(cov.geom, s.pt) LIMIT 1
-                ) cov ON true;
-            """)
+            cur.execute("CREATE TEMP TABLE _decoded ON COMMIT DROP AS "
+                        + decode_select_sql(STAGING) + ";")
             cur.execute("SELECT count(*), count(DISTINCT city_code) FROM _decoded;")
             n_rows, n_cities = cur.fetchone()
             print(f"[time] coverage-join/decode: {time.time() - t1:.1f}s ({n_rows} rows)")

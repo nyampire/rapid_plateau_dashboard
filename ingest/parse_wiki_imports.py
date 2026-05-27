@@ -60,6 +60,20 @@ def parse_sections(wt):
         yield heading, status, date_str, validated
 
 
+def resolve_city_code(heading, lookup):
+    """Map a wiki section heading (prefecture+city_name) to a city_code via `lookup`.
+
+    Falls back for designated-city wards: '<...市><ward>区' -> parent '<...市>'.
+    Returns None when nothing matches.
+    """
+    if heading in lookup:
+        return lookup[heading]
+    m = re.match(r"^(.+?市).+区$", heading)
+    if m and m.group(1) in lookup:
+        return lookup[m.group(1)]
+    return None
+
+
 def main():
     ap = argparse.ArgumentParser(description="Update dash_city_master from OSM wiki imports_list.")
     ap.add_argument("--postgres-url", required=True)
@@ -77,21 +91,12 @@ def main():
                         "WHERE prefecture IS NOT NULL AND city_name IS NOT NULL;")
             lookup = {(p or "") + (n or ""): c for p, n, c in cur.fetchall()}
 
-        def resolve(heading):
-            if heading in lookup:
-                return lookup[heading]
-            # Designated-city ward fallback: '<pref><city>市<ward>区' -> parent '<pref><city>市'.
-            m = re.match(r"^(.+?市).+区$", heading)
-            if m and m.group(1) in lookup:
-                return lookup[m.group(1)]
-            return None
-
         # Aggregate per city_code (a designated city may appear as several ward sections):
         # done beats in_progress; keep max done-date; validated if any.
         agg = {}  # code -> {status, date, validated, headings:[...]}
         unmatched = []
         for heading, status, date_str, validated in sections:
-            code = resolve(heading)
+            code = resolve_city_code(heading, lookup)
             if not code:
                 unmatched.append((heading, status))
                 continue

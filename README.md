@@ -63,8 +63,16 @@ osmium export region.osm.pbf --add-unique-id=type_id \
 
 ```bash
 pip install -r requirements-dev.txt
-pytest            # DB 非依存の単体テスト（wiki パーサ / DB 接続文字列の組み立て）
+
+# 単体テスト（DB 不要）: wiki パーサ / name→code 解決 / DB 接続文字列の組み立て
+pytest
+
+# 統合テスト（PostGIS 必須）: compute_stats 交差判定 / load_osm の coverage 付与 / API エンドポイント
+createdb dash_test && psql -d dash_test -c "CREATE EXTENSION postgis"
+DASH_TEST_DATABASE_URL=postgresql:///dash_test pytest
 ```
+
+`DASH_TEST_DATABASE_URL` 未設定時は DB 依存テストが自動 skip される（CI でも緑）。
 
 ## 週次自動化（デプロイ）
 
