@@ -30,6 +30,7 @@ osmium/measure*.sh                 osmium のメモリ実測スクリプト
 
 api/dashboard_api.py               読み取り専用 FastAPI（/api/dashboard/*。router 相乗り or standalone）
 frontend/                          静的ダッシュボード（index.html / app.js / style.css。API 直読 + data.js フォールバック）
+frontend/stamp_cache.py            ?v= キャッシュ無効化を内容ハッシュで自動書換（デプロイ前に実行）
 
 data/plateau_city_master_2025.csv  抽出済み都市マスタ
 docs/DESIGN.md, docs/POC_RESULTS.md  設計・PoC 実測記録
@@ -87,6 +88,17 @@ journalctl -u rapid-plateau-dashboard.service -f      # ログ
 
 > バッチは数時間かかるため、開始時刻は日次メンテナンス（例: パッケージ更新によるサービス再起動）の時間帯を跨がないこと。ホストのタイムゾーンを確認のうえ `OnCalendar` を調整する。単発確認は `sudo systemctl start rapid-plateau-dashboard.service`。
 
+## フロントエンドのデプロイ
+
+静的フロント（`frontend/`）を配信先（nginx の `/dashboard/` など）へ配置する。**配置前に**キャッシュ無効化ハッシュを更新する:
+
+```bash
+python3 frontend/stamp_cache.py          # index.html の ?v= を各アセットの内容ハッシュに更新
+rsync -av frontend/ <web>/dashboard/     # 静的ファイル配置（--delete は使わない: 親を巻き込まないため）
+```
+
+フロントは API（`/api/dashboard/*`）を直読し、不通時のみ同梱 `data.js` にフォールバックする。補助地図は CARTO のダークベースマップを利用。
+
 ## データソース
 
 | ソース | 用途 |
@@ -99,6 +111,7 @@ journalctl -u rapid-plateau-dashboard.service -f      # ログ
 ## ライセンスと帰属
 
 - **コード**: [MIT License](LICENSE)。
-- **OSM 建物データ / 地図タイル**: © OpenStreetMap contributors（[ODbL](https://www.openstreetmap.org/copyright)）。
+- **OSM 建物データ**: © OpenStreetMap contributors（[ODbL](https://www.openstreetmap.org/copyright)）。
+- **地図タイル**: © [CARTO](https://carto.com/attributions) ／ © OpenStreetMap contributors。
 - **PLATEAU 建物データ・整備都市マスタ（attributedata_2025）**: 国土交通省 [Project PLATEAU](https://www.mlit.go.jp/plateau/)（各データの利用規約に従う）。
 - **インポート完了ステータス**: OSM wiki [`JA:MLIT_PLATEAU/imports_list`](https://wiki.openstreetmap.org/wiki/JA:MLIT_PLATEAU/imports_list)。

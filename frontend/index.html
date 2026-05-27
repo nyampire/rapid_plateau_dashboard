@@ -5,7 +5,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>Rapid Plateau 進捗ダッシュボード</title>
   <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css">
-  <link rel="stylesheet" href="style.css?v=8">
+  <link rel="stylesheet" href="style.css?v=e2ce6630">
 </head>
 <body>
   <header class="topbar">
@@ -147,6 +147,7 @@
     最終更新 <span id="updated">—</span>
     ・ 建物データ: <a href="https://www.mlit.go.jp/plateau/" target="_blank" rel="noopener">国土交通省 PLATEAU</a>
     ・ 地図・OSM 建物: &copy; <a href="https://www.openstreetmap.org/copyright" target="_blank" rel="noopener">OpenStreetMap contributors</a>
+    ・ 地図タイル: &copy; <a href="https://carto.com/attributions" target="_blank" rel="noopener">CARTO</a>
   </footer>
 
   <!-- Detail drawer -->
@@ -159,7 +160,7 @@
   <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
   <!-- API base: same-origin /api/dashboard by default; override for dev via ?api=<base-url> -->
   <script>window.DASH_API_BASE = new URLSearchParams(location.search).get("api") || "/api/dashboard";</script>
-  <script src="data.js?v=8"></script>
-  <script src="app.js?v=8"></script>
+  <script src="data.js?v=0b9b15e2"></script>
+  <script src="app.js?v=2a2c8201"></script>
 </body>
 </html>
