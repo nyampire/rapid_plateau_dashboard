@@ -7,8 +7,14 @@ JSON assembled in-database (json_build_object / json_agg) so handlers are thin.
 Exposes both an APIRouter (`router`) for mounting into an existing FastAPI app
 and a standalone `app` for `uvicorn dashboard_api:app`.
 
-Env:  DATABASE_URL   PostgreSQL connection string (read-only use)
+Env:  DASH_DATABASE_URL  preferred (a read-only role; see sql/readonly_role.sql)
+      DATABASE_URL       fallback connection string
 Run:  DATABASE_URL=... uvicorn dashboard_api:app --port 8000
+
+This API only ever reads. Every connection is put in a read-only session
+(set_session(readonly=True)) so it cannot write even if pointed at a
+write-capable role; using a dedicated read-only role via DASH_DATABASE_URL
+adds defense in depth.
 """
 import os
 
@@ -20,13 +26,19 @@ from fastapi.responses import JSONResponse
 router = APIRouter(prefix="/api/dashboard")
 
 
+def _db_url():
+    # Prefer a dedicated read-only role; fall back to the shared DATABASE_URL.
+    return os.environ.get("DASH_DATABASE_URL") or os.environ.get("DATABASE_URL")
+
+
 def fetch_one_json(sql, params=None):
     """Run a query whose first column is a single JSON value; return it (or None)."""
-    url = os.environ.get("DATABASE_URL")
+    url = _db_url()
     if not url:
         raise HTTPException(status_code=500, detail="DATABASE_URL not configured")
     conn = psycopg2.connect(url)
     try:
+        conn.set_session(readonly=True, autocommit=True)  # serving path never writes
         with conn.cursor() as cur:
             cur.execute(sql, params or {})
             row = cur.fetchone()
