@@ -59,6 +59,8 @@ osmium export region.osm.pbf --add-unique-id=type_id \
 
 > ⚠️ OSM 建物抽出に `osmium tags-filter` は使わないこと（低メモリ機（RAM ≈1GB）で OOM 寸前になる。docs/DESIGN.md §11 参照）。
 
+> 任意（差分ダウンロード）: `DASH_PBF_CACHE=<dir>` を設定し `osmupdate`（osmctools）を導入すると、region pbf をそのディレクトリにキャッシュし replication 差分だけ取得して更新する（未設定／未導入なら従来どおりフルダウンロード）。高速化は**ダウンロード段のみ**で、export+load は毎回 region 全体を処理する。docs/DESIGN.md §9-4。
+
 ## 開発・テスト
 
 ```bash
