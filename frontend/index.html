@@ -5,7 +5,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>Rapid Plateau 進捗ダッシュボード</title>
   <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css">
-  <link rel="stylesheet" href="style.css?v=e2ce6630">
+  <link rel="stylesheet" href="style.css?v=1fc086af">
 </head>
 <body>
   <header class="topbar">
@@ -80,6 +80,12 @@
             <td>インポート完了都市数 / Plateauデータセット数（306）</td>
           </tr>
           <tr>
+            <td>ほぼ完了（率ベース）</td>
+            <td>建物カバレッジ率が 90% 以上の都市。OSM wiki の「完了」とは別に、coverage の数値から「実質的に完了」とみなす目安です。
+              <div class="note">※ Plateau 自体も最新・完全な真値ではないため率は 100% には達しません。検証済みの完了都市でも幾何のずれ等で約 90% に収まることから、90% をしきい値としています。</div></td>
+            <td>建物カバレッジ率 ≥ 90%</td>
+          </tr>
+          <tr>
             <td>「未計測」「Rapid対象外」</td>
             <td><b>未計測</b>＝Rapid Plateau の作業対象（Rapid対象）だが、OSM との照合（率の計算）をまだ行っていない都市。<br>
               <b>Rapid対象外</b>＝Rapid Plateau の作業対象ではない都市。Plateau データが無いため率を出せません。</td>
@@ -109,7 +115,8 @@
               <option value="measured">計測済</option>
               <option value="in_db">Rapid対象</option>
               <option value="not_in_db">Rapid対象外</option>
-              <option value="done">インポート完了</option>
+              <option value="done">インポート完了（wiki）</option>
+              <option value="rate_done">ほぼ完了（率≥90%）</option>
             </select>
             <input id="f-search" type="search" placeholder="🔍 都市名">
           </div>
@@ -161,6 +168,6 @@
   <!-- API base: same-origin /api/dashboard by default; override for dev via ?api=<base-url> -->
   <script>window.DASH_API_BASE = new URLSearchParams(location.search).get("api") || "/api/dashboard";</script>
   <script src="data.js?v=0b9b15e2"></script>
-  <script src="app.js?v=2a2c8201"></script>
+  <script src="app.js?v=7c142a88"></script>
 </body>
 </html>

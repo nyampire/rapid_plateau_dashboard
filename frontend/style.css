@@ -118,6 +118,7 @@ td.code{font-variant-numeric:tabular-nums;color:var(--muted);font-size:12px}
 .badge.done{background:#143d27;color:#5fe39b}
 .badge.prog{background:#3d3414;color:#e3cf5f}
 .badge.none{background:#2a323d;color:#8b97a6}
+.badge.ratedone{background:#123a3d;color:#5fd6e3;margin-left:6px}
 .chk{color:var(--r-high);font-size:11px;margin-left:4px}
 .count{color:var(--muted);font-size:12px;margin-top:8px}
 

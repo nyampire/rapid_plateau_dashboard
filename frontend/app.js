@@ -15,6 +15,10 @@ function renderDashboard(D) {
   // escape DB/API-derived strings before innerHTML interpolation (defense-in-depth)
   const esc = (v) => String(v == null ? "" : v).replace(/[&<>"']/g,
     (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
+  // coverage-based completion (decision in #6/#8): rate >= threshold ⇒ "ほぼ完了（率）",
+  // shown alongside the authoritative OSM-wiki "完了" status.
+  const RATE_DONE = 90;
+  const isRateDone = (c) => c.import_rate != null && c.import_rate >= RATE_DONE;
 
   // ---------- KPIs ----------
   const s = D.summary;
@@ -36,7 +40,10 @@ function renderDashboard(D) {
   $("#kpi-cities").innerHTML = `${s.cities_in_db} / ${s.cities_total}<span class="unit">都市</span>`;
   $("#f-cities").innerHTML = `<span class="ratelabel">割合</span> ${pct(s.cities_in_db, s.cities_total)}<span class="fnote">Rapid Plateau作業対象都市数 / Plateauデータセット数</span>`;
   $("#kpi-done").innerHTML = `${s.cities_osm_done} / ${s.cities_total}<span class="unit">都市</span>`;
-  $("#f-done").innerHTML = `<span class="ratelabel">割合</span> ${pct(s.cities_osm_done, s.cities_total)}<span class="fnote">インポート完了都市数 / Plateauデータセット数</span>`;
+  const rateDoneCount = D.cities.filter(isRateDone).length;
+  $("#f-done").innerHTML = `<span class="ratelabel">割合</span> ${pct(s.cities_osm_done, s.cities_total)}` +
+    `<span class="fnote">インポート完了都市数（wiki） / Plateauデータセット数</span>` +
+    `<span class="fnote">＋ ほぼ完了（率≥${RATE_DONE}%）: ${rateDoneCount} 都市</span>`;
   function pct(a, b) { return b ? (100 * a / b).toFixed(0) + "%" : "—"; }
 
   // ---------- region order ----------
@@ -94,7 +101,9 @@ function renderDashboard(D) {
     if (c.import_rate != null) {
       const col = rateColor(c.import_rate);
       return `<div class="ratecell"><div class="bar"><i style="width:${c.import_rate}%;background:${col}"></i></div>` +
-        `<span class="pct">${c.import_rate}%</span></div>`;
+        `<span class="pct">${c.import_rate}%</span>` +
+        (isRateDone(c) ? `<span class="badge ratedone" title="建物カバレッジ率≥${RATE_DONE}%＝coverage 視点でほぼ完了（OSM wiki 完了とは別軸）">ほぼ完了</span>` : "") +
+        `</div>`;
     }
     return c.in_local_db
       ? `<span class="na" title="Rapid対象（作業対象に登録済み）だが、OSM建物との交差率は未計算（全国一括計算で算出予定）">未計測</span>`
@@ -108,6 +117,7 @@ function renderDashboard(D) {
     if (st === "in_db" && !c.in_local_db) return false;
     if (st === "not_in_db" && c.in_local_db) return false;
     if (st === "done" && c.osm_import_status !== "done") return false;
+    if (st === "rate_done" && !isRateDone(c)) return false;
     const q = $("#f-search").value.trim();
     if (q && !(c.city_name || "").includes(q) && !(c.prefecture || "").includes(q)) return false;
     return true;
@@ -170,7 +180,7 @@ function renderDashboard(D) {
     const c = byCode[code]; if (!c) return;
     const col = rateColor(c.import_rate) || getCss("--muted");
     const rateLine = c.import_rate != null
-      ? `<div class="d-rate" style="color:${col}">${c.import_rate}%</div>
+      ? `<div class="d-rate" style="color:${col}">${c.import_rate}%${isRateDone(c) ? ' <span class="badge ratedone">ほぼ完了</span>' : ''}</div>
          <div class="d-row"><span class="k">OSMに存在する / Plateau総数</span><span>${fmt(c.intersecting_count)} / ${fmt(c.plateau_count)}</span></div>`
       : `<div class="d-rate na">${c.in_local_db ? "未計測" : "Rapid対象外"}</div>`;
     $("#drawer-body").innerHTML = `
