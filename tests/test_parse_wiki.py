@@ -38,3 +38,10 @@ def test_resolve_city_code():
     assert resolve_city_code("埼玉県新座市", lookup) == "11230"      # exact
     assert resolve_city_code("大阪府大阪市北区", lookup) == "27100"  # designated-city ward -> parent
     assert resolve_city_code("どこかの村", lookup) is None           # no match
+
+
+def test_resolve_city_code_normalizes_variations():
+    lookup = {"神奈川県茅ヶ崎市": "14207", "神奈川県横浜市": "14100"}
+    assert resolve_city_code("神奈川県茅ケ崎市", lookup) == "14207"        # ヶ vs ケ
+    assert resolve_city_code("神奈川県　茅ヶ崎市", lookup) == "14207"      # full-width space (NFKC + strip)
+    assert resolve_city_code("神奈川県横浜市 西区", lookup) == "14100"     # ward fallback + whitespace

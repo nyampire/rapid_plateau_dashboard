@@ -20,6 +20,7 @@ import argparse
 import json
 import re
 import sys
+import unicodedata
 import urllib.parse
 import urllib.request
 
@@ -60,17 +61,32 @@ def parse_sections(wt):
         yield heading, status, date_str, validated
 
 
+def normalize_name(s):
+    """Normalize a place name for tolerant matching.
+
+    NFKC folds full/half-width and compatibility characters (incl. compatibility
+    ideographs like 﨑->崎); whitespace is dropped; the small kana ヶ/ヵ commonly
+    used in place names are unified to ケ/カ (e.g. 茅ヶ崎 == 茅ケ崎).
+    """
+    s = unicodedata.normalize("NFKC", s or "")
+    s = re.sub(r"\s+", "", s)
+    return s.replace("ヶ", "ケ").replace("ヵ", "カ")
+
+
 def resolve_city_code(heading, lookup):
     """Map a wiki section heading (prefecture+city_name) to a city_code via `lookup`.
 
-    Falls back for designated-city wards: '<...市><ward>区' -> parent '<...市>'.
-    Returns None when nothing matches.
+    Matching is done on normalized names (see normalize_name) so full/half-width,
+    whitespace and ヶ/ケ variations do not cause misses. Falls back for
+    designated-city wards: '<...市><ward>区' -> parent '<...市>'. None if no match.
     """
-    if heading in lookup:
-        return lookup[heading]
-    m = re.match(r"^(.+?市).+区$", heading)
-    if m and m.group(1) in lookup:
-        return lookup[m.group(1)]
+    norm = {normalize_name(k): v for k, v in lookup.items()}
+    h = normalize_name(heading)
+    if h in norm:
+        return norm[h]
+    m = re.match(r"^(.+?市).+区$", h)
+    if m and m.group(1) in norm:
+        return norm[m.group(1)]
     return None
 
 
