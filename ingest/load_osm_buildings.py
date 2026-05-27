@@ -47,15 +47,20 @@ def decode_select_sql(staging):
     """SELECT that decodes osmium 'a<num>' ids to (osm_type, osm_id) and assigns a
     city_code via the plateau_coverage polygon containing the building's
     representative point. Buildings outside every coverage polygon are dropped;
-    only POLYGON/MULTIPOLYGON rows are kept and stored as valid geometry."""
+    only POLYGON/MULTIPOLYGON rows are kept and stored as valid geometry.
+
+    The coverage probe uses the GiST index on plateau_coverage.geom. ST_MakeValid
+    is applied in the outer SELECT so it runs only for rows that survive the
+    coverage join — the (often majority) buildings outside every coverage polygon
+    skip that validity work."""
     return f"""
         SELECT cov.city_code,
                CASE WHEN s.n % 2 = 0 THEN 'w' ELSE 'r' END AS osm_type,
                CASE WHEN s.n % 2 = 0 THEN s.n / 2 ELSE (s.n - 1) / 2 END AS osm_id,
-               s.geom
+               ST_MakeValid(ST_Multi(s.geom)) AS geom
         FROM (
           SELECT (substring(id from 2))::bigint AS n,
-                 ST_MakeValid(ST_Multi(geom)) AS geom,
+                 geom,
                  ST_PointOnSurface(geom) AS pt
           FROM {staging}
           WHERE GeometryType(geom) IN ('POLYGON', 'MULTIPOLYGON')
