@@ -66,6 +66,14 @@ def ogr_pg(url):
 # city_code per N03 polygon, then dissolve to one MultiPolygon per city.
 # A ward (N03_005 set) takes its parent's code from the master name join; otherwise
 # N03_007 is used directly. ST_UnaryUnion merges a city's many polygons / wards.
+#
+# Cleanup CTEs (parts -> cleaned -> recombined) drop sub-threshold disconnected
+# polygons and interior rings. When the input is per-feature-simplified (the
+# normal pre-shipping case), adjacent ward borders simplify independently and
+# the union leaves 5-30 m slivers along the seams — both as separate tiny
+# MultiPolygon components and as tiny interior rings. The defaults remove those
+# while preserving real features (broad areas, port islands, and known enclaves
+# like 広島市 ⊃ 府中町 ≈ 10.4 km²).
 DISSOLVE_SQL = f"""
 WITH mapped AS (
   SELECT CASE WHEN NULLIF(TRIM(s.n03_005), '') IS NOT NULL THEN m.city_code
@@ -83,15 +91,33 @@ dissolved AS (
   FROM mapped
   WHERE city_code IN (SELECT city_code FROM dash_city_master)
   GROUP BY city_code
+),
+parts AS (
+  SELECT d.city_code, p.geom AS poly
+  FROM dissolved d, LATERAL ST_Dump(d.geom) p
+  WHERE GeometryType(p.geom) = 'POLYGON'
+    AND ST_Area(p.geom::geography) >= %(part_thr)s
+),
+cleaned AS (
+  SELECT pa.city_code,
+    ST_MakePolygon(
+      ST_ExteriorRing(pa.poly),
+      COALESCE((SELECT array_agg(ST_ExteriorRing(r.geom)) FROM ST_DumpRings(pa.poly) r
+                WHERE r.path[1] > 0 AND ST_Area(r.geom::geography) >= %(hole_thr)s),
+               ARRAY[]::geometry[])
+    ) AS poly FROM parts pa
+),
+recombined AS (
+  SELECT city_code, ST_Multi(ST_Collect(poly)) AS geom FROM cleaned GROUP BY city_code
 )
 UPDATE dash_city_master t
 SET boundary_geom = ST_Multi(
       CASE WHEN %(tol)s > 0
-           THEN ST_SimplifyPreserveTopology(d.geom, %(tol)s)
-           ELSE d.geom END),
+           THEN ST_SimplifyPreserveTopology(r.geom, %(tol)s)
+           ELSE r.geom END),
     updated_at = now()
-FROM dissolved d
-WHERE d.city_code = t.city_code;
+FROM recombined r
+WHERE r.city_code = t.city_code;
 """
 
 # 政令市 wards whose (prefecture, city_name) didn't match any master row.
@@ -115,6 +141,13 @@ def main():
     ap.add_argument("--store-simplify", type=float, default=0.0,
                     help="ST_SimplifyPreserveTopology tolerance (deg) applied to the dissolved "
                          "boundary before storing; 0 = store as-is. Default 0.")
+    ap.add_argument("--min-part-m2", type=float, default=1000.0,
+                    help="Drop disconnected MultiPolygon parts smaller than this (m^2). Removes "
+                         "sliver artifacts from per-feature simplification of ward boundaries; "
+                         "1000 m^2 (~32 m square) is well below any real islet. Default 1000.")
+    ap.add_argument("--min-hole-m2", type=float, default=10000.0,
+                    help="Drop interior rings (holes) smaller than this (m^2). Keeps real "
+                         "enclaves like 広島市 ⊃ 府中町 (10.4 km^2). Default 10000 (0.01 km^2).")
     args = ap.parse_args()
 
     pg_conn, pg_env = ogr_pg(args.postgres_url)
@@ -138,9 +171,13 @@ def main():
             print(f"staging rows: {cur.fetchone()[0]}")
 
             t1 = time.time()
-            cur.execute(DISSOLVE_SQL, {"tol": args.store_simplify})
+            cur.execute(DISSOLVE_SQL, {"tol": args.store_simplify,
+                                       "part_thr": args.min_part_m2,
+                                       "hole_thr": args.min_hole_m2})
             updated = cur.rowcount
-            print(f"[time] dissolve+update: {time.time() - t1:.1f}s ({updated} cities updated)")
+            print(f"[time] dissolve+cleanup+update: {time.time() - t1:.1f}s "
+                  f"({updated} cities, parts<{args.min_part_m2:g}m^2 and "
+                  f"holes<{args.min_hole_m2:g}m^2 dropped)")
 
             cur.execute(UNMATCHED_WARDS_SQL)
             unmatched = cur.fetchall()
