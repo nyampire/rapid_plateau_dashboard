@@ -113,7 +113,8 @@ FROM (
   SELECT json_build_object('type','Feature',
     'properties', json_build_object('city_code', cov.city_code, 'city_name', m.city_name,
                                     'import_rate', s.import_rate),
-    'geometry', ST_AsGeoJSON(ST_SimplifyPreserveTopology(cov.geom, 0.001))::json) AS f
+    'geometry', ST_AsGeoJSON(ST_SimplifyPreserveTopology(
+                  COALESCE(m.boundary_geom, cov.geom), 0.001))::json) AS f
   FROM plateau_coverage cov
   LEFT JOIN dash_city_master m ON m.city_code = cov.city_code
   LEFT JOIN dash_city_stats s ON s.city_code = cov.city_code

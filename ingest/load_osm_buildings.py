@@ -45,16 +45,18 @@ def ogr_pg(url):
 
 def decode_select_sql(staging):
     """SELECT that decodes osmium 'a<num>' ids to (osm_type, osm_id) and assigns a
-    city_code via the plateau_coverage polygon containing the building's
-    representative point. Buildings outside every coverage polygon are dropped;
-    only POLYGON/MULTIPOLYGON rows are kept and stored as valid geometry.
+    city_code by which admin polygon contains the building's representative point.
 
-    The coverage probe uses the GiST index on plateau_coverage.geom. ST_MakeValid
-    is applied in the outer SELECT so it runs only for rows that survive the
-    coverage join — the (often majority) buildings outside every coverage polygon
-    skip that validity work."""
+    The polygon is the N03 administrative boundary (dash_city_master.boundary_geom,
+    loaded by load_n03_boundaries.py), falling back to the plateau_coverage hull for
+    cities/areas without an N03 boundary (special datasets like 竹芝/万博, or cities
+    absent from N03). Both probes use GiST indexes; buildings in neither are dropped.
+
+    Only POLYGON/MULTIPOLYGON rows are kept. ST_MakeValid runs in the outer SELECT so
+    it only touches rows that survive the spatial join — the (often majority)
+    buildings outside every admin polygon skip that validity work."""
     return f"""
-        SELECT cov.city_code,
+        SELECT loc.city_code,
                CASE WHEN s.n % 2 = 0 THEN 'w' ELSE 'r' END AS osm_type,
                CASE WHEN s.n % 2 = 0 THEN s.n / 2 ELSE (s.n - 1) / 2 END AS osm_id,
                ST_MakeValid(ST_Multi(s.geom)) AS geom
@@ -67,9 +69,14 @@ def decode_select_sql(staging):
             AND id ~ '^[a-z][0-9]+$'
         ) s
         JOIN LATERAL (
-          SELECT city_code FROM plateau_coverage cov
-          WHERE ST_Contains(cov.geom, s.pt) LIMIT 1
-        ) cov ON true
+          SELECT city_code FROM (
+            SELECT m.city_code, 1 AS pri FROM dash_city_master m
+              WHERE m.boundary_geom IS NOT NULL AND ST_Contains(m.boundary_geom, s.pt)
+            UNION ALL
+            SELECT cov.city_code, 2 AS pri FROM plateau_coverage cov
+              WHERE ST_Contains(cov.geom, s.pt)
+          ) cand ORDER BY pri LIMIT 1
+        ) loc ON true
     """
 
 

@@ -16,9 +16,11 @@ CREATE TABLE IF NOT EXISTS dash_city_master (
   osm_import_status TEXT,                             -- not_started / in_progress / done
   osm_import_date   DATE,                             -- wiki completion date
   osm_validated     BOOLEAN,                          -- wiki note '検証済'
-  boundary_geom     GEOMETRY(MultiPolygon, 4326),     -- admin boundary (N03; interim coverage hull). nullable for now.
+  boundary_geom     GEOMETRY(MultiPolygon, 4326),     -- N03 admin boundary (load_n03_boundaries.py). nullable: special datasets / cities absent from N03 fall back to plateau_coverage.
   updated_at        TIMESTAMPTZ DEFAULT now()
 );
+-- Spatial index for point-in-boundary probes (OSM building city_code assignment).
+CREATE INDEX IF NOT EXISTS dash_city_master_boundary_idx ON dash_city_master USING GIST (boundary_geom);
 
 -- 4.2 OSM building cache (from public extract; created during PoC).
 CREATE TABLE IF NOT EXISTS dash_osm_buildings (
