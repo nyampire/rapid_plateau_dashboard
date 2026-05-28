@@ -26,7 +26,7 @@ function renderDashboard(D) {
   $("#kpi-rate").textContent = s.overall_rate != null ? s.overall_rate : "—";
   $("#f-rate").innerHTML =
     `<span class="op">=</span>` +
-    `<span class="term"><span class="tlabel">OSMに存在する建物</span><span class="tval">${fmt(s.total_intersecting)}</span></span>` +
+    `<span class="term"><span class="tlabel">OSMに重なる建物</span><span class="tval">${fmt(s.total_intersecting)}</span></span>` +
     `<span class="op">/</span>` +
     `<span class="term"><span class="tlabel">Plateau建物の総数</span><span class="tval">${fmt(s.total_plateau)}</span></span>` +
     `<span class="fnote">計測済 ${s.cities_measured} 都市の合計</span>`;
@@ -181,7 +181,7 @@ function renderDashboard(D) {
     const col = rateColor(c.import_rate) || getCss("--muted");
     const rateLine = c.import_rate != null
       ? `<div class="d-rate" style="color:${col}">${c.import_rate}%${isRateDone(c) ? ' <span class="badge ratedone">ほぼ完了</span>' : ''}</div>
-         <div class="d-row"><span class="k">OSMに存在する / Plateau総数</span><span>${fmt(c.intersecting_count)} / ${fmt(c.plateau_count)}</span></div>`
+         <div class="d-row"><span class="k">OSMに重なる / Plateau総数</span><span>${fmt(c.intersecting_count)} / ${fmt(c.plateau_count)}</span></div>`
       : `<div class="d-rate na">${c.in_local_db ? "未計測" : "Rapid対象外"}</div>`;
     $("#drawer-body").innerHTML = `
       <div class="d-title">${esc(c.city_name)} <span class="muted">(${c.city_code})</span></div>
