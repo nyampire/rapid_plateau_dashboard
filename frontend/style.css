@@ -75,6 +75,8 @@ h2{font-size:14px;margin:0 0 10px;font-weight:600}
 .def-table .note b{color:#e6c98a}
 .def-table code{display:inline-block;background:#0c1117;border:1px solid var(--line);border-radius:5px;
   padding:3px 7px;font-size:11px;color:#9ad0ff;white-space:normal;line-height:1.5}
+.def-table a{color:inherit;text-decoration:underline}
+.def-table a:hover,.def-table a:focus{color:var(--txt)}
 
 /* main layout */
 .main{display:grid;grid-template-columns:1fr 320px;gap:14px;padding:0 20px 24px;align-items:start}

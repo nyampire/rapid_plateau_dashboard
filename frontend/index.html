@@ -29,7 +29,7 @@
       <div class="kpi-value"><span id="kpi-rate">—</span><span class="unit">%</span>
         <span class="delta" id="kpi-delta"></span></div>
       <div class="formula" id="f-rate"></div>
-      <div class="kpi-def">OSM に建物が存在する Plateau 建物の割合（Plateau 公開前からあった建物も含む）。実際のインポート作業の状況は <b>インポート作業</b> 列で確認。</div>
+      <div class="kpi-def">OSM 建物と重なる Plateau 建物の割合（Plateau 公開前から OSM にあった建物も含む）。実際のインポート作業の状況は <b>インポート作業</b> 列で確認。</div>
     </div>
     <div class="kpi">
       <div class="kpi-label">都市カバレッジ</div>
@@ -49,47 +49,47 @@
   <details class="defs">
     <summary>指標の意味と計算方法</summary>
     <div class="defs-body">
-      <p class="defs-intro">国土交通省の「Plateau」が整備した建物データが、OpenStreetMap（OSM）にどれだけ反映されているかを示すダッシュボードです。用語の意味と計算方法は以下のとおりです。</p>
+      <p class="defs-intro">OpenStreetMap（OSM）の建物データが、国土交通省の Plateau が公開している建物データとどれだけ重なっているかを集計し、OSM 上で建物マッピングが進んでいる範囲の目安を示すダッシュボードです。OSM の建物は OSM マッパーによる成果で、Plateau データはマッピングの参考資料の一つです。用語の意味と計算方法は以下のとおりです。</p>
       <table class="def-table">
         <thead><tr><th>用語</th><th>意味</th><th>計算方法</th></tr></thead>
         <tbody>
           <tr>
             <td>建物カバレッジ率</td>
-            <td>Plateau の建物のうち、同じ場所に OSM にも建物が存在する割合。地図づくりの進み具合の目安です。
-              <div class="note">※ この指標は、OSM に建物が存在しているかどうかの判定を行います。そのため、<b>Plateau 公開より前から OSM にあった建物も数に含まれます</b>。Plateau データを使った実際のインポート作業が行われたかは「インポート作業」列で確認してください。</div></td>
-            <td>OSM に建物が存在する Plateau 建物の数 / Plateau 建物の総数 × 100</td>
+            <td>Plateau の建物 1 つ 1 つについて、同じ位置に OSM の建物があるかを判定し、重なりがあったものの割合です。OSM 側のマッピング進捗の目安として使えます。
+              <div class="note">※ OSM 側の建物の作成時期は問いません。<b>Plateau 公開より前から OSM マッパーが描いていた建物も「重なり」として数えます</b>。Plateau データをトレース元としたインポート作業が行われたかは別途「インポート作業」列でご確認ください。</div></td>
+            <td>OSM 建物と重なる Plateau 建物の数 / Plateau 建物の総数 × 100</td>
           </tr>
           <tr>
-            <td>「OSM に建物が存在する」と判定する条件</td>
-            <td>Plateau 建物の代表点（建物内のある 1 点）が OSM の建物の内側にある、または 2 つの建物の重なりが面積の 30% を超えるとき、その Plateau 建物は「OSM に存在する」とみなします。</td>
-            <td>代表点が OSM 建物の内側 ／ または 重なり面積が Plateau 建物面積の 30% 超</td>
+            <td>「OSM 建物と重なる」と判定する条件</td>
+            <td>Plateau 建物の内部に置いた代表点（必ず建物内側に来るように選んだ 1 点）が OSM 建物の内側にあるとき、または、Plateau 建物と OSM 建物の交差面積が Plateau 建物面積の 30% を超えるとき、その Plateau 建物を「OSM 建物と重なる」と判定します。</td>
+            <td>代表点が OSM 建物の内側 ／ または 交差面積が Plateau 建物面積の 30% 超</td>
           </tr>
           <tr>
             <td>Plateau 建物の数えかた</td>
-            <td>建物 1 棟（外形）を 1 件として数えます。3D 表示のための部分パーツ（階や屋根などの区切り）は数えません。</td>
-            <td>建物 1 棟 ＝ 1 件（部分パーツは除外）</td>
+            <td>建物 1 棟の外形（OSM の <code>building</code> タグに相当するアウトライン）を 1 件として数えます。3D 表示のために内部を区切るパーツ（OSM の <code>building:part</code> 相当の階・屋根セグメント）はカウントしません。</td>
+            <td>1 outline = 1 件（<code>building:part</code> 相当のパーツは除外）</td>
           </tr>
           <tr>
             <td>都市カバレッジ</td>
-            <td>Plateau が建物データを提供している都市のうち、Rapid Plateau の作業対象とした都市の割合。</td>
-            <td>Rapid Plateau作業対象都市数 / Plateauデータセット数（306）</td>
+            <td>Plateau が建物データを公開している全 306 都市（2025 年度版整備リスト）のうち、本ダッシュボードのバックエンドに取り込まれて率を計算できる状態にある都市の割合。Rapid Plateau エディタからも参照可能になります。</td>
+            <td>バックエンド取込済都市数 / Plateau 公開都市数（306）</td>
           </tr>
           <tr>
             <td>OSMインポート完了都市数（OSM wiki）</td>
-            <td>OSM コミュニティの公式ページ（wiki）で「インポート完了」と記録された都市の数。実際の作業完了の公式な基準です。</td>
-            <td>インポート完了都市数 / Plateauデータセット数（306）</td>
+            <td>OSM wiki の <a href="https://wiki.openstreetmap.org/wiki/JA:MLIT_PLATEAU/imports_list" target="_blank" rel="noopener">JA:MLIT_PLATEAU/imports_list</a> で「インポート完了」と記録された都市の数。Plateau データを使ったインポート作業は OSM コミュニティのインポートガイドラインに沿って進められており、このページが進捗管理の正本になっています。</td>
+            <td>wiki 完了記載都市数 / Plateau 公開都市数（306）</td>
           </tr>
           <tr>
             <td>ほぼ完了（率ベース）</td>
-            <td>建物カバレッジ率が 90% 以上の都市。OSM wiki の「完了」とは別に、coverage の数値から「実質的に完了」とみなす目安です。
-              <div class="note">※ Plateau 自体も最新・完全な真値ではないため率は 100% には達しません。検証済みの完了都市でも幾何のずれ等で約 90% に収まることから、90% をしきい値としています。</div></td>
+            <td>建物カバレッジ率が 90% 以上の都市です。OSM wiki への完了登録とは独立に、本ダッシュボードの数値からマッピングがほぼ済んだ可能性が高いと<b>推定</b>できる都市を識別する目安として用います。
+              <div class="note">※ 率が 100% に達しないのは、(1) Plateau データも作成時点のスナップショットで最新の街並みを反映しきれない、(2) OSM 側で新たに描かれた建物は Plateau 側に含まれない、(3) Plateau と OSM のジオメトリに代表点判定の閾値以下のずれがある、といった要因によります。wiki で完了登録済の都市でも約 90% に収まることから、90% をしきい値に置いています。</div></td>
             <td>建物カバレッジ率 ≥ 90%</td>
           </tr>
           <tr>
             <td>「未計測」「Rapid対象外」</td>
-            <td><b>未計測</b>＝Rapid Plateau の作業対象（Rapid対象）だが、OSM との照合（率の計算）をまだ行っていない都市。<br>
-              <b>Rapid対象外</b>＝Rapid Plateau の作業対象ではない都市。Plateau データが無いため率を出せません。</td>
-            <td class="muted">該当する都市は率を空欄表示</td>
+            <td><b>未計測</b>＝Plateau データはバックエンドに取り込まれているが、OSM 側との重なり判定を次回の集計更新でまだ計算していない都市。<br>
+              <b>Rapid対象外</b>＝Plateau 側で建物データが整備されていない都市。重なり率の元データがないため率を出せません。</td>
+            <td class="muted">該当都市は率を空欄表示</td>
           </tr>
         </tbody>
       </table>
