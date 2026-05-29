@@ -35,13 +35,13 @@
       <div class="kpi-label">都市カバレッジ</div>
       <div class="kpi-value"><span id="kpi-cities">—</span></div>
       <div class="formula" id="f-cities"></div>
-      <div class="kpi-def">Rapid Plateau の作業対象とした都市の割合。</div>
+      <div class="kpi-def">Plateau 公開 306 都市のうち、本ダッシュボードのバックエンドに取り込まれて率を計算できる都市の割合。</div>
     </div>
     <div class="kpi">
       <div class="kpi-label">OSMインポート完了都市数 (wiki)</div>
       <div class="kpi-value"><span id="kpi-done">—</span></div>
       <div class="formula" id="f-done"></div>
-      <div class="kpi-def">OSM wiki で公式に「インポート完了」とされた都市。</div>
+      <div class="kpi-def">OSM wiki の進捗管理ページで「インポート完了」と記録された都市。</div>
     </div>
   </section>
 
@@ -88,7 +88,7 @@
           <tr>
             <td>「未計測」「Rapid対象外」</td>
             <td><b>未計測</b>＝Plateau データはバックエンドに取り込まれているが、OSM 側との重なり判定を次回の集計更新でまだ計算していない都市。<br>
-              <b>Rapid対象外</b>＝Plateau 側で建物データが整備されていない都市。重なり率の元データがないため率を出せません。</td>
+              <b>Rapid対象外</b>＝Plateau データは公開されているが本ダッシュボードのバックエンドにまだ取り込まれていない都市。重なり率の元データがないため率を計算できません。</td>
             <td class="muted">該当都市は率を空欄表示</td>
           </tr>
         </tbody>

@@ -38,11 +38,11 @@ function renderDashboard(D) {
     $("#kpi-delta").innerHTML = `<span class="dlabel">先週比</span> ${d >= 0 ? "+" : "−"}${Math.abs(d).toFixed(1)}pt`;
   }
   $("#kpi-cities").innerHTML = `${s.cities_in_db} / ${s.cities_total}<span class="unit">都市</span>`;
-  $("#f-cities").innerHTML = `<span class="ratelabel">割合</span> ${pct(s.cities_in_db, s.cities_total)}<span class="fnote">Rapid Plateau作業対象都市数 / Plateauデータセット数</span>`;
+  $("#f-cities").innerHTML = `<span class="ratelabel">割合</span> ${pct(s.cities_in_db, s.cities_total)}<span class="fnote">バックエンド取込済都市数 / Plateau 公開都市数</span>`;
   $("#kpi-done").innerHTML = `${s.cities_osm_done} / ${s.cities_total}<span class="unit">都市</span>`;
   const rateDoneCount = D.cities.filter(isRateDone).length;
   $("#f-done").innerHTML = `<span class="ratelabel">割合</span> ${pct(s.cities_osm_done, s.cities_total)}` +
-    `<span class="fnote">インポート完了都市数（wiki） / Plateauデータセット数</span>` +
+    `<span class="fnote">wiki 完了記載都市数 / Plateau 公開都市数</span>` +
     `<span class="fnote">＋ ほぼ完了（率≥${RATE_DONE}%）: ${rateDoneCount} 都市</span>`;
   function pct(a, b) { return b ? (100 * a / b).toFixed(0) + "%" : "—"; }
 
@@ -71,7 +71,7 @@ function renderDashboard(D) {
       `<div class="rname">${esc(r.region)}</div>` +
       `<div class="rrate" style="color:${color}">${rate != null ? rate + "%" : "<span class='na'>未計測</span>"}</div>` +
       `<div class="bar"><i style="width:${rate != null ? rate : 0}%;background:${color}"></i></div>` +
-      `<div class="rsub" title="Rapid対象＝Rapid Plateau作業対象都市（Plateau建物データを保有する都市）">Rapid対象 ${r.cities_in_db}/${r.cities_total}都市 ・ インポート完了 ${r.cities_done}都市</div>`;
+      `<div class="rsub" title="Rapid対象＝Plateau データがバックエンドに取り込まれ、率を計算できる都市">Rapid対象 ${r.cities_in_db}/${r.cities_total}都市 ・ インポート完了 ${r.cities_done}都市</div>`;
     card.onclick = () => {
       regionFilter = (regionFilter === r.region) ? "" : r.region;
       document.querySelectorAll(".region-card").forEach((c) =>
@@ -102,12 +102,12 @@ function renderDashboard(D) {
       const col = rateColor(c.import_rate);
       return `<div class="ratecell"><div class="bar"><i style="width:${c.import_rate}%;background:${col}"></i></div>` +
         `<span class="pct">${c.import_rate}%</span>` +
-        (isRateDone(c) ? `<span class="badge ratedone" title="建物カバレッジ率≥${RATE_DONE}%＝coverage 視点でほぼ完了（OSM wiki 完了とは別軸）">ほぼ完了</span>` : "") +
+        (isRateDone(c) ? `<span class="badge ratedone" title="建物カバレッジ率 ≥ ${RATE_DONE}%。OSM wiki への完了登録とは独立の、本ダッシュボードによる推定。">ほぼ完了</span>` : "") +
         `</div>`;
     }
     return c.in_local_db
-      ? `<span class="na" title="Rapid対象（作業対象に登録済み）だが、OSM建物との交差率は未計算（全国一括計算で算出予定）">未計測</span>`
-      : `<span class="na" title="Rapid Plateauの作業対象ではない（Plateauデータが無い）ため率を算出できない">Rapid対象外</span>`;
+      ? `<span class="na" title="Plateau データはバックエンドに取り込み済み。次回の集計更新で OSM 建物との重なり判定を実行予定。">未計測</span>`
+      : `<span class="na" title="Plateau データは公開されているが、本ダッシュボードのバックエンドに未取込みのため重なり率を算出できない都市。">Rapid対象外</span>`;
   }
 
   function passFilter(c) {
@@ -181,14 +181,14 @@ function renderDashboard(D) {
     const col = rateColor(c.import_rate) || getCss("--muted");
     const rateLine = c.import_rate != null
       ? `<div class="d-rate" style="color:${col}">${c.import_rate}%${isRateDone(c) ? ' <span class="badge ratedone">ほぼ完了</span>' : ''}</div>
-         <div class="d-row"><span class="k">OSMに重なる / Plateau総数</span><span>${fmt(c.intersecting_count)} / ${fmt(c.plateau_count)}</span></div>`
+         <div class="d-row"><span class="k">OSMに重なる建物 / Plateau建物数</span><span>${fmt(c.intersecting_count)} / ${fmt(c.plateau_count)}</span></div>`
       : `<div class="d-rate na">${c.in_local_db ? "未計測" : "Rapid対象外"}</div>`;
     $("#drawer-body").innerHTML = `
       <div class="d-title">${esc(c.city_name)} <span class="muted">(${c.city_code})</span></div>
       <div class="d-sub">${esc(c.prefecture)} ・ ${esc(c.region)}</div>
       ${rateLine}
-      <div class="d-row"><span class="k">OSM建物総数</span><span>${fmt(c.osm_count)}</span></div>
-      <div class="d-row"><span class="k">建築物LOD / 仕様</span><span>${esc(c.building_lods || "—")} / ${esc(c.spec_versions || "—")}</span></div>
+      <div class="d-row"><span class="k" title="OSMがその都市範囲に持つ建物の全数。このうち Plateau と重なる数が上段の「OSMに重なる建物」">OSM建物総数</span><span>${fmt(c.osm_count)}</span></div>
+      <div class="d-row"><span class="k">建築物LOD / Plateau 仕様版</span><span>${esc(c.building_lods || "—")} / ${esc(c.spec_versions || "—")}</span></div>
       <div class="d-row"><span class="k">Rapid Plateau 作業対象</span><span>${c.in_local_db ? "Rapid対象" : "Rapid対象外"}</span></div>
       <div class="d-row"><span class="k">OSMインポート(wiki)</span><span>${statusBadge(c)} ${c.osm_import_date || ""}</span></div>
       <div class="d-links">
