@@ -1,10 +1,10 @@
 # rapid_plateau_dashboard
 
+**公開URL**: <https://rapid.nyampire.info/dashboard/>
+
 PLATEAU 建物データの OSM へのインポート進捗を可視化するダッシュボード。
 PLATEAU 配信 API（PostGIS + FastAPI）と同一の DB を **読み取り専用**で参照し、
 集計結果を `dash_*` テーブルに書き込む分析・可視化レイヤ。本体パイプラインとは関心分離。
-
-**公開URL**: <https://rapid.nyampire.info/dashboard/>
 
 設計の詳細は [`docs/DESIGN.md`](docs/DESIGN.md)、PoC 実測結果は [`docs/POC_RESULTS.md`](docs/POC_RESULTS.md)。
 
