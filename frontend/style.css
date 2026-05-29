@@ -61,12 +61,13 @@ h2{font-size:14px;margin:0 0 10px;font-weight:600}
 .defs summary::-webkit-details-marker{display:none}
 .defs summary::before{content:"▸ ";color:var(--muted)}
 .defs[open] summary::before{content:"▾ "}
-.def-table{width:100%;border-collapse:collapse;font-size:12px;margin-bottom:14px}
-.def-table th,.def-table td{text-align:left;padding:8px 10px;border-top:1px solid var(--line);vertical-align:top}
+.def-table{width:100%;border-collapse:collapse;font-size:12px;margin-bottom:14px;table-layout:fixed}
+.def-table th,.def-table td{text-align:left;padding:8px 10px;border-top:1px solid var(--line);vertical-align:top;word-break:normal;overflow-wrap:anywhere}
 .def-table th{color:var(--muted);font-weight:600}
 .def-table th:first-child,.def-table td:first-child{width:24%;min-width:170px}
 .def-table td:first-child{white-space:normal;font-weight:600;color:var(--txt)}
 .def-table th:nth-child(2),.def-table td:nth-child(2){width:46%}
+.def-table th:nth-child(3),.def-table td:nth-child(3){width:30%}
 .def-table td .muted{font-weight:400;font-size:11px}
 .defs-body{padding-bottom:14px}
 .defs-intro{margin:4px 0 12px;color:var(--muted);font-size:12px;line-height:1.7}
