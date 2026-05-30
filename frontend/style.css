@@ -151,20 +151,25 @@ td.code{font-variant-numeric:tabular-nums;color:var(--muted);font-size:12px}
 .d-links a{color:var(--accent);text-decoration:none;font-size:13px;border:1px solid var(--line);
   padding:6px 10px;border-radius:6px}
 /* ward accordion */
-.d-wards{margin-top:18px;border-top:1px solid var(--line);padding-top:10px}
-.d-wards summary{cursor:pointer;padding:6px 2px;font-weight:600;font-size:13px;
-  color:var(--txt);list-style:none}
+.d-wards{margin-top:22px}
+.d-wards summary{cursor:pointer;padding:10px 12px;font-weight:700;font-size:15px;
+  color:var(--txt);list-style:none;background:rgba(255,255,255,.04);
+  border:1px solid var(--line);border-radius:8px;display:flex;align-items:center;gap:8px}
 .d-wards summary::-webkit-details-marker{display:none}
-.d-wards summary::before{content:"▸ ";color:var(--muted)}
-.d-wards[open] summary::before{content:"▾ "}
-.ward-table{width:100%;border-collapse:collapse;font-size:12px;margin-top:8px}
-.ward-table th{font-weight:500;color:var(--muted);text-align:left;padding:4px 6px;border-bottom:1px solid var(--line)}
-.ward-table td{padding:6px;border-bottom:1px solid var(--line);vertical-align:middle}
-.ward-table .num{text-align:right;white-space:nowrap}
-.ward-table .ward-links{white-space:nowrap}
-.ward-table .ward-links a{color:var(--accent);text-decoration:none;font-size:11px;
-  border:1px solid var(--line);padding:2px 6px;border-radius:4px;margin-left:4px}
+.d-wards summary::before{content:"▸";color:var(--accent);font-size:16px;line-height:1}
+.d-wards[open] summary::before{content:"▾"}
+.d-wards[open] summary{margin-bottom:6px}
+.d-wards summary:hover{background:rgba(255,255,255,.07)}
+.ward-table{width:100%;border-collapse:collapse;font-size:13px;margin-top:4px}
+.ward-table th{font-weight:500;color:var(--muted);text-align:left;padding:6px 8px;border-bottom:1px solid var(--line)}
+.ward-table td{padding:8px;border-bottom:1px solid var(--line);vertical-align:middle}
+.ward-table .num{text-align:right;white-space:nowrap;font-variant-numeric:tabular-nums}
+.ward-table .ward-counts{font-size:11px;margin-top:2px;font-variant-numeric:tabular-nums}
+.ward-table .ward-links{white-space:nowrap;text-align:right}
+.ward-table .ward-links a{color:var(--accent);text-decoration:none;font-size:12px;
+  border:1px solid var(--line);padding:3px 8px;border-radius:5px;margin-left:6px}
 .ward-table .ward-links a:first-child{margin-left:0}
+.ward-table .ward-links a:hover{background:rgba(255,255,255,.06)}
 
 @media(max-width:900px){
   .kpis{grid-template-columns:1fr}

@@ -212,21 +212,22 @@ function renderDashboard(D) {
       <details class="d-wards">
         <summary>区の内訳 <span class="muted">(${wards.length})</span></summary>
         <table class="ward-table">
-          <thead><tr><th>区</th><th class="num">率</th><th class="num">OSMに重なる / Plateau</th><th>開く</th></tr></thead>
+          <thead><tr><th>区</th><th class="num">率</th><th></th></tr></thead>
           <tbody>${wards.map((w) => {
             const wcol = rateColor(w.import_rate) || getCss("--muted");
             const rateCell = w.import_rate != null
               ? `<span style="color:${wcol}">${w.import_rate}%</span>`
               : `<span class="muted">—</span>`;
-            const countCell = (w.intersecting_count != null && w.plateau_count != null)
-              ? `${fmt(w.intersecting_count)} / ${fmt(w.plateau_count)}`
-              : `<span class="muted">—</span>`;
+            const countLine = (w.intersecting_count != null && w.plateau_count != null)
+              ? `<div class="ward-counts muted">${fmt(w.intersecting_count)} / ${fmt(w.plateau_count)}</div>`
+              : "";
             return `<tr>
-              <td>${esc(w.ward_name)} <span class="muted">(${w.ward_code})</span></td>
+              <td>
+                <div>${esc(w.ward_name)} <span class="muted">(${w.ward_code})</span></div>
+                ${countLine}
+              </td>
               <td class="num">${rateCell}</td>
-              <td class="num">${countCell}</td>
               <td class="ward-links">
-                <a href="${osmUrl(w)}" target="_blank">OSM</a>
                 <a href="${rapidUrl(w)}" target="_blank">Rapid</a>
               </td>
             </tr>`;
