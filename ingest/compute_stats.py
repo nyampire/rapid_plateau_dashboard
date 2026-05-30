@@ -43,6 +43,49 @@ SELECT
 FROM p;
 """
 
+# Per-ward variant. PLATEAU outlines are spatially filtered by the ward boundary
+# (parent city's buildings are split across its wards). The OR-short-circuit
+# OSM intersection test is identical and stays purely spatial: an OSM building
+# assigned to a neighbouring city by coverage still counts, matching the
+# city-level behaviour so ward sums roll up cleanly to the parent's row.
+WARD_STATS_SQL = """
+WITH w AS (
+  SELECT parent_city_code AS pcc, boundary_geom AS wgeom
+  FROM dash_ward_master WHERE ward_code = %(ward)s
+),
+p AS (
+  SELECT pb.geom, ST_PointOnSurface(pb.geom) AS pt
+  FROM plateau_buildings pb, w
+  WHERE pb.city_code = w.pcc
+    AND pb.building_part IS NULL
+    AND pb.geom && w.wgeom
+    AND ST_Contains(w.wgeom, ST_PointOnSurface(pb.geom))
+)
+SELECT
+  count(*) AS plateau_count,
+  count(*) FILTER (WHERE
+    EXISTS (SELECT 1 FROM dash_osm_buildings o
+            WHERE o.geom && p.geom
+              AND ST_Contains(o.geom, p.pt))
+    OR EXISTS (SELECT 1 FROM dash_osm_buildings o
+               WHERE o.geom && p.geom
+                 AND ST_Area(ST_Intersection(ST_MakeValid(p.geom), ST_MakeValid(o.geom))) / NULLIF(ST_Area(p.geom), 0) > 0.30)
+  ) AS intersecting
+FROM p;
+"""
+
+# Ward OSM count: OSM buildings whose representative point falls inside the ward
+# (and whose coverage-assigned city_code is the parent). Mirrors the city-level
+# count semantics (parent's OSM total partitioned across its wards).
+WARD_OSM_COUNT_SQL = """
+SELECT count(*)
+FROM dash_osm_buildings o, dash_ward_master w
+WHERE w.ward_code = %(ward)s
+  AND o.city_code = w.parent_city_code
+  AND o.geom && w.boundary_geom
+  AND ST_Contains(w.boundary_geom, ST_PointOnSurface(o.geom));
+"""
+
 
 def target_cities(cur, city):
     if city:
@@ -56,11 +99,28 @@ def target_cities(cur, city):
     return [r[0] for r in cur.fetchall()]
 
 
+def target_wards(cur, ward):
+    if ward:
+        return [ward]
+    cur.execute("""
+        SELECT w.ward_code
+        FROM dash_ward_master w
+        JOIN dash_city_master m ON m.city_code = w.parent_city_code AND m.in_local_db
+        ORDER BY w.ward_code;
+    """)
+    return [r[0] for r in cur.fetchall()]
+
+
 def main():
     ap = argparse.ArgumentParser(description="Compute dash_city_stats + dash_progress_history.")
     ap.add_argument("--postgres-url", required=True)
     ap.add_argument("--city", help="restrict to one city_code (for testing)")
+    ap.add_argument("--ward", help="restrict to one ward_code (for testing)")
     ap.add_argument("--skip-history", action="store_true")
+    ap.add_argument("--skip-cities", action="store_true",
+                    help="skip dash_city_stats this run (for ward-only catchup)")
+    ap.add_argument("--skip-wards", action="store_true",
+                    help="don't compute dash_ward_stats this run (for emergency disable)")
     args = ap.parse_args()
 
     conn = psycopg2.connect(args.postgres_url)
@@ -71,8 +131,11 @@ def main():
             if not cur.fetchone()[0]:
                 sys.exit("another compute_stats run holds the advisory lock; aborting")
 
-            cities = target_cities(cur, args.city)
-            print(f"computing stats for {len(cities)} city/cities")
+            cities = [] if args.skip_cities else target_cities(cur, args.city)
+            if cities:
+                print(f"computing stats for {len(cities)} city/cities")
+            elif args.skip_cities:
+                print("--skip-cities set: dash_city_stats unchanged this run")
 
             skipped = []
             for c in cities:
@@ -101,6 +164,38 @@ def main():
                     print(f"  SKIP {c}: {type(e).__name__}: {str(e).splitlines()[0]}")
             if skipped:
                 print(f"skipped {len(skipped)} city/cities: {','.join(skipped)}")
+
+            if not args.skip_wards:
+                wards = target_wards(cur, args.ward)
+                if wards:
+                    print(f"computing stats for {len(wards)} ward(s)")
+                ward_skipped = []
+                for w in wards:
+                    t0 = time.time()
+                    try:
+                        cur.execute(WARD_STATS_SQL, {"ward": w})
+                        plateau, inter = cur.fetchone()
+                        cur.execute(WARD_OSM_COUNT_SQL, {"ward": w})
+                        osm = cur.fetchone()[0]
+                        rate = round(100.0 * inter / plateau, 2) if plateau else None
+                        cur.execute("""
+                            INSERT INTO dash_ward_stats
+                              (ward_code, plateau_count, osm_count, intersecting_count, import_rate, computed_at)
+                            VALUES (%s,%s,%s,%s,%s, now())
+                            ON CONFLICT (ward_code) DO UPDATE SET
+                              plateau_count=EXCLUDED.plateau_count, osm_count=EXCLUDED.osm_count,
+                              intersecting_count=EXCLUDED.intersecting_count, import_rate=EXCLUDED.import_rate,
+                              computed_at=EXCLUDED.computed_at;
+                        """, (w, plateau, osm, inter, rate))
+                        conn.commit()
+                        print(f"  ward {w}: plateau={plateau} osm={osm} intersecting={inter} "
+                              f"rate={rate}% ({time.time()-t0:.1f}s)")
+                    except Exception as e:
+                        conn.rollback()
+                        ward_skipped.append(w)
+                        print(f"  SKIP ward {w}: {type(e).__name__}: {str(e).splitlines()[0]}")
+                if ward_skipped:
+                    print(f"skipped {len(ward_skipped)} ward(s): {','.join(ward_skipped)}")
 
             if not args.skip_history:
                 cur.execute("""

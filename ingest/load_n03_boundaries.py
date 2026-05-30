@@ -128,6 +128,70 @@ FROM stored
 WHERE stored.city_code = t.city_code;
 """
 
+# Per-ward dissolve + cleanup + UPSERT into dash_ward_master. Mirrors DISSOLVE_SQL
+# but groups by N03_007 (ward code) instead of the parent-city code, and only takes
+# rows where N03_005 is non-empty AND the parent (prefecture, city_name) resolves
+# to a master row (drops 神戸市 etc. that are absent from PLATEAU master).
+WARD_DISSOLVE_SQL = f"""
+WITH ward_mapped AS (
+  SELECT s.n03_007                  AS ward_code,
+         m.city_code                AS parent_city_code,
+         TRIM(s.n03_005)            AS ward_name,
+         ST_MakeValid(s.geom)       AS geom
+  FROM {STAGING} s
+  JOIN dash_city_master m
+    ON m.prefecture = s.n03_001
+   AND m.city_name  = s.n03_004
+  WHERE NULLIF(TRIM(s.n03_005), '') IS NOT NULL
+),
+ward_dissolved AS (
+  SELECT ward_code,
+         MIN(parent_city_code) AS parent_city_code,
+         MIN(ward_name)        AS ward_name,
+         ST_CollectionExtract(ST_UnaryUnion(ST_Collect(geom)), 3) AS geom
+  FROM ward_mapped GROUP BY ward_code
+),
+ward_parts AS (
+  SELECT d.ward_code, d.parent_city_code, d.ward_name, p.geom AS poly
+  FROM ward_dissolved d, LATERAL ST_Dump(d.geom) p
+  WHERE GeometryType(p.geom) = 'POLYGON'
+    AND ST_Area(p.geom::geography) >= %(part_thr)s
+),
+ward_cleaned AS (
+  SELECT wp.ward_code, wp.parent_city_code, wp.ward_name,
+    ST_MakePolygon(
+      ST_ExteriorRing(wp.poly),
+      COALESCE((SELECT array_agg(ST_ExteriorRing(r.geom)) FROM ST_DumpRings(wp.poly) r
+                WHERE r.path[1] > 0 AND ST_Area(r.geom::geography) >= %(hole_thr)s),
+               ARRAY[]::geometry[])
+    ) AS poly FROM ward_parts wp
+),
+ward_recombined AS (
+  SELECT ward_code,
+         MIN(parent_city_code) AS parent_city_code,
+         MIN(ward_name)        AS ward_name,
+         ST_Multi(ST_Collect(poly)) AS geom
+  FROM ward_cleaned GROUP BY ward_code
+),
+ward_stored AS (
+  SELECT ward_code, parent_city_code, ward_name,
+         ST_Multi(CASE WHEN %(tol)s > 0
+                       THEN ST_SimplifyPreserveTopology(geom, %(tol)s)
+                       ELSE geom END) AS geom
+  FROM ward_recombined
+)
+INSERT INTO dash_ward_master
+  (ward_code, parent_city_code, ward_name, boundary_geom, repr_point, updated_at)
+SELECT ward_code, parent_city_code, ward_name, geom, ST_PointOnSurface(geom), now()
+FROM ward_stored
+ON CONFLICT (ward_code) DO UPDATE SET
+  parent_city_code = EXCLUDED.parent_city_code,
+  ward_name        = EXCLUDED.ward_name,
+  boundary_geom    = EXCLUDED.boundary_geom,
+  repr_point       = EXCLUDED.repr_point,
+  updated_at       = now();
+"""
+
 # 政令市 wards whose (prefecture, city_name) didn't match any master row.
 UNMATCHED_WARDS_SQL = f"""
 SELECT DISTINCT s.n03_001, s.n03_004
@@ -192,14 +256,21 @@ def main():
             cur.execute(f"SELECT count(*) FROM {STAGING};")
             print(f"staging rows: {cur.fetchone()[0]}")
 
+            params = {"tol": args.store_simplify,
+                      "part_thr": args.min_part_m2,
+                      "hole_thr": args.min_hole_m2}
             t1 = time.time()
-            cur.execute(DISSOLVE_SQL, {"tol": args.store_simplify,
-                                       "part_thr": args.min_part_m2,
-                                       "hole_thr": args.min_hole_m2})
+            cur.execute(DISSOLVE_SQL, params)
             updated = cur.rowcount
-            print(f"[time] dissolve+cleanup+update: {time.time() - t1:.1f}s "
+            print(f"[time] city dissolve+cleanup+update: {time.time() - t1:.1f}s "
                   f"({updated} cities, parts<{args.min_part_m2:g}m^2 and "
                   f"holes<{args.min_hole_m2:g}m^2 dropped)")
+
+            t1b = time.time()
+            cur.execute(WARD_DISSOLVE_SQL, params)
+            wards_upserted = cur.rowcount
+            print(f"[time] ward dissolve+cleanup+upsert: {time.time() - t1b:.1f}s "
+                  f"({wards_upserted} wards)")
 
             cur.execute(UNMATCHED_WARDS_SQL)
             unmatched = cur.fetchall()

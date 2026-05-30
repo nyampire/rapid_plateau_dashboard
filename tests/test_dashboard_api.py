@@ -69,5 +69,29 @@ def test_geojson(client):
     assert r.json()["type"] == "FeatureCollection"
 
 
+def test_wards(client, db):
+    # Seed a ward under 11230 (新座市 is not actually a designated city; we just
+    # reuse the existing fixture's parent code to keep the test self-contained).
+    with db.cursor() as cur:
+        cur.execute(
+            "INSERT INTO dash_ward_master(ward_code,parent_city_code,ward_name,repr_point) "
+            "VALUES ('14101','11230','鶴見区', ST_SetSRID(ST_MakePoint(139.68,35.50),4326))")
+        cur.execute(
+            "INSERT INTO dash_ward_stats(ward_code,plateau_count,osm_count,intersecting_count,import_rate,computed_at) "
+            "VALUES ('14101', 12345, 6000, 5000, 40.50, now())")
+    r = client.get("/api/dashboard/wards")
+    assert r.status_code == 200
+    j = r.json()
+    assert len(j) == 1
+    w = j[0]
+    assert w["ward_code"] == "14101"
+    assert w["parent_city_code"] == "11230"
+    assert w["ward_name"] == "鶴見区"
+    assert float(w["repr_lat"]) == pytest.approx(35.50)
+    assert float(w["repr_lon"]) == pytest.approx(139.68)
+    assert w["plateau_count"] == 12345
+    assert w["intersecting_count"] == 5000
+
+
 def test_health(client):
     assert client.get("/health").json()["status"] == "ok"

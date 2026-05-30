@@ -60,3 +60,33 @@ CREATE TABLE IF NOT EXISTS dash_progress_history (
   cities_in_db       INTEGER,        -- ingested into our DB
   cities_osm_done    INTEGER         -- wiki-'done' cities
 );
+
+-- 4.5 Designated-city wards (政令市の区). Parallel to dash_city_master without
+-- changing the 1:1 mapping between dash_city_master and the PLATEAU 306-city list.
+-- Populated by load_n03_boundaries.py from N03 rows with a non-empty N03_005.
+-- Drawer renders these as a per-city accordion; stats are computed per-ward by
+-- compute_stats.py. Cities absent from PLATEAU master (e.g. 神戸市 28100) have
+-- no parent here, so their wards are simply not loaded.
+CREATE TABLE IF NOT EXISTS dash_ward_master (
+  ward_code         TEXT PRIMARY KEY,                 -- 5-digit N03_007 (e.g. 14101 鶴見区)
+  parent_city_code  TEXT NOT NULL REFERENCES dash_city_master(city_code),
+  ward_name         TEXT NOT NULL,                    -- N03_005 (e.g. 鶴見区)
+  boundary_geom     GEOMETRY(MultiPolygon, 4326),
+  repr_point        GEOMETRY(Point, 4326),
+  updated_at        TIMESTAMPTZ DEFAULT now()
+);
+CREATE INDEX IF NOT EXISTS dash_ward_master_parent_idx   ON dash_ward_master (parent_city_code);
+CREATE INDEX IF NOT EXISTS dash_ward_master_boundary_idx ON dash_ward_master USING GIST (boundary_geom);
+
+-- 4.6 Per-ward stats snapshot. Same shape as dash_city_stats. plateau_count is
+-- counted by spatially testing plateau_buildings against boundary_geom (the parent
+-- city's buildings are split across its wards); per-ward sums should equal the
+-- parent's dash_city_stats row.
+CREATE TABLE IF NOT EXISTS dash_ward_stats (
+  ward_code          TEXT PRIMARY KEY REFERENCES dash_ward_master(ward_code),
+  plateau_count      INTEGER,
+  osm_count          INTEGER,
+  intersecting_count INTEGER,
+  import_rate        NUMERIC(5,2),
+  computed_at        TIMESTAMPTZ
+);

@@ -57,6 +57,17 @@ SELECT COALESCE(json_agg(c), '[]'::json) FROM (
 ) c;
 """
 
+WARDS = """
+SELECT COALESCE(json_agg(w ORDER BY w.ward_code), '[]'::json) FROM (
+  SELECT w.ward_code, w.parent_city_code, w.ward_name,
+    round(ST_Y(w.repr_point)::numeric, 6) AS repr_lat,
+    round(ST_X(w.repr_point)::numeric, 6) AS repr_lon,
+    s.plateau_count, s.osm_count, s.intersecting_count, s.import_rate
+  FROM dash_ward_master w
+  LEFT JOIN dash_ward_stats s ON s.ward_code = w.ward_code
+) w;
+"""
+
 GEOJSON = """
 SELECT json_build_object('type','FeatureCollection','features', COALESCE(json_agg(f), '[]'::json))
 FROM (
@@ -83,16 +94,18 @@ def main():
         cur.execute(SUMMARY); summary = cur.fetchone()[0]
         cur.execute(REGIONS); regions = cur.fetchone()[0]
         cur.execute(CITIES); cities = cur.fetchone()[0]
+        cur.execute(WARDS); wards = cur.fetchone()[0]
         cur.execute(GEOJSON); geojson = cur.fetchone()[0]
     conn.close()
 
-    data = {"summary": summary, "regions": regions, "cities": cities, "geojson": geojson}
+    data = {"summary": summary, "regions": regions, "cities": cities,
+            "wards": wards, "geojson": geojson}
     with open(args.out, "w", encoding="utf-8") as f:
         f.write("window.DASH = ")
         json.dump(data, f, ensure_ascii=False)
         f.write(";\n")
-    print(f"wrote {args.out}: {len(cities)} cities, {len(regions)} regions, "
-          f"{len(geojson['features'])} coverage polys")
+    print(f"wrote {args.out}: {len(cities)} cities, {len(wards)} wards, "
+          f"{len(regions)} regions, {len(geojson['features'])} coverage polys")
 
 
 if __name__ == "__main__":

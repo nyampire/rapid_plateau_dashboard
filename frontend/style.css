@@ -150,6 +150,21 @@ td.code{font-variant-numeric:tabular-nums;color:var(--muted);font-size:12px}
 .d-links{margin-top:14px;display:flex;gap:8px}
 .d-links a{color:var(--accent);text-decoration:none;font-size:13px;border:1px solid var(--line);
   padding:6px 10px;border-radius:6px}
+/* ward accordion */
+.d-wards{margin-top:18px;border-top:1px solid var(--line);padding-top:10px}
+.d-wards summary{cursor:pointer;padding:6px 2px;font-weight:600;font-size:13px;
+  color:var(--txt);list-style:none}
+.d-wards summary::-webkit-details-marker{display:none}
+.d-wards summary::before{content:"▸ ";color:var(--muted)}
+.d-wards[open] summary::before{content:"▾ "}
+.ward-table{width:100%;border-collapse:collapse;font-size:12px;margin-top:8px}
+.ward-table th{font-weight:500;color:var(--muted);text-align:left;padding:4px 6px;border-bottom:1px solid var(--line)}
+.ward-table td{padding:6px;border-bottom:1px solid var(--line);vertical-align:middle}
+.ward-table .num{text-align:right;white-space:nowrap}
+.ward-table .ward-links{white-space:nowrap}
+.ward-table .ward-links a{color:var(--accent);text-decoration:none;font-size:11px;
+  border:1px solid var(--line);padding:2px 6px;border-radius:4px;margin-left:4px}
+.ward-table .ward-links a:first-child{margin-left:0}
 
 @media(max-width:900px){
   .kpis{grid-template-columns:1fr}

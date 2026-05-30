@@ -40,7 +40,8 @@ CREATE INDEX IF NOT EXISTS plateau_coverage_geom_idx ON plateau_coverage USING G
 
 _FIXTURE_TABLES = [
     "plateau_buildings", "plateau_coverage",
-    "dash_osm_buildings", "dash_city_stats", "dash_progress_history", "dash_city_master",
+    "dash_osm_buildings", "dash_ward_stats", "dash_city_stats", "dash_progress_history",
+    "dash_ward_master", "dash_city_master",
 ]
 
 

@@ -113,6 +113,17 @@ SELECT to_jsonb(c) FROM (
 ) c;
 """
 
+WARDS_SQL = """
+SELECT COALESCE(json_agg(w ORDER BY w.ward_code), '[]'::json) FROM (
+  SELECT w.ward_code, w.parent_city_code, w.ward_name,
+    round(ST_Y(w.repr_point)::numeric, 6) AS repr_lat,
+    round(ST_X(w.repr_point)::numeric, 6) AS repr_lon,
+    s.plateau_count, s.osm_count, s.intersecting_count, s.import_rate
+  FROM dash_ward_master w
+  LEFT JOIN dash_ward_stats s ON s.ward_code = w.ward_code
+) w;
+"""
+
 GEOJSON_SQL = """
 SELECT json_build_object('type','FeatureCollection','features', COALESCE(json_agg(f), '[]'::json))
 FROM (
@@ -146,6 +157,11 @@ def cities(region: str | None = None):
 @router.get("/cities.geojson")
 def cities_geojson():
     return JSONResponse(fetch_one_json(GEOJSON_SQL))
+
+
+@router.get("/wards")
+def wards():
+    return fetch_one_json(WARDS_SQL)
 
 
 @router.get("/cities/{city_code}")

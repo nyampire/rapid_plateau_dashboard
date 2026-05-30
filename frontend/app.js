@@ -176,15 +176,22 @@ function renderDashboard(D) {
 
   // ---------- detail drawer ----------
   const byCode = Object.fromEntries(D.cities.map((c) => [c.city_code, c]));
-  // Deep-link the OSM and Rapid editors at the city's N03 representative point
+  // Group designated-city wards under their parent so the drawer can render an
+  // accordion. Unparented wards are dropped (would happen only if parent_city_code
+  // points outside dash_city_master, which the schema FK forbids).
+  const wardsByCity = {};
+  for (const w of (D.wards || [])) {
+    (wardsByCity[w.parent_city_code] = wardsByCity[w.parent_city_code] || []).push(w);
+  }
+  // Deep-link the OSM and Rapid editors at the city/ward N03 representative point
   // (ST_PointOnSurface, so always inside the boundary). Fixed zooms — OSM 13 for
   // a city-wide view, Rapid 15 to land just below the Plateau data threshold (z16)
-  // so the user can zoom in once to start tracing. If repr_lat/lon are unset
-  // (e.g. city absent from both N03 and coverage), fall back to the old behaviour.
+  // so the user can zoom in once to start tracing. Works for both city and ward
+  // records (same repr_lat/lon shape). When unset, falls back to the old behaviour.
   function osmUrl(c) {
     return (c.repr_lat != null && c.repr_lon != null)
       ? `https://www.openstreetmap.org/#map=13/${c.repr_lat}/${c.repr_lon}`
-      : `https://www.openstreetmap.org/search?query=${encodeURIComponent(c.city_name)}`;
+      : `https://www.openstreetmap.org/search?query=${encodeURIComponent(c.city_name || c.ward_name || "")}`;
   }
   function rapidUrl(c) {
     return (c.repr_lat != null && c.repr_lon != null)
@@ -198,6 +205,34 @@ function renderDashboard(D) {
       ? `<div class="d-rate" style="color:${col}">${c.import_rate}%${isRateDone(c) ? ' <span class="badge ratedone">ほぼ完了</span>' : ''}</div>
          <div class="d-row"><span class="k">OSMに重なる建物 / Plateau建物数</span><span>${fmt(c.intersecting_count)} / ${fmt(c.plateau_count)}</span></div>`
       : `<div class="d-rate na">${c.in_local_db ? "未計測" : "Rapid対象外"}</div>`;
+    const wards = wardsByCity[code] || [];
+    // 政令市のみ ward 行があるので、accordion を出すのもそのときだけ。
+    // 既定は閉。ward リンク (#13 と同じヘルパ) も各行に置く。
+    const wardsBlock = wards.length ? `
+      <details class="d-wards">
+        <summary>区の内訳 <span class="muted">(${wards.length})</span></summary>
+        <table class="ward-table">
+          <thead><tr><th>区</th><th class="num">率</th><th class="num">OSMに重なる / Plateau</th><th>開く</th></tr></thead>
+          <tbody>${wards.map((w) => {
+            const wcol = rateColor(w.import_rate) || getCss("--muted");
+            const rateCell = w.import_rate != null
+              ? `<span style="color:${wcol}">${w.import_rate}%</span>`
+              : `<span class="muted">—</span>`;
+            const countCell = (w.intersecting_count != null && w.plateau_count != null)
+              ? `${fmt(w.intersecting_count)} / ${fmt(w.plateau_count)}`
+              : `<span class="muted">—</span>`;
+            return `<tr>
+              <td>${esc(w.ward_name)} <span class="muted">(${w.ward_code})</span></td>
+              <td class="num">${rateCell}</td>
+              <td class="num">${countCell}</td>
+              <td class="ward-links">
+                <a href="${osmUrl(w)}" target="_blank">OSM</a>
+                <a href="${rapidUrl(w)}" target="_blank">Rapid</a>
+              </td>
+            </tr>`;
+          }).join("")}</tbody>
+        </table>
+      </details>` : "";
     $("#drawer-body").innerHTML = `
       <div class="d-title">${esc(c.city_name)} <span class="muted">(${c.city_code})</span></div>
       <div class="d-sub">${esc(c.prefecture)} ・ ${esc(c.region)}</div>
@@ -209,7 +244,8 @@ function renderDashboard(D) {
       <div class="d-links">
         <a href="${osmUrl(c)}" target="_blank">OSMで開く</a>
         <a href="${rapidUrl(c)}" target="_blank">Rapidで開く</a>
-      </div>`;
+      </div>
+      ${wardsBlock}`;
     $("#drawer").classList.remove("hidden");
     $("#scrim").classList.remove("hidden");
   }
@@ -248,8 +284,11 @@ function renderDashboard(D) {
 (function () {
   const base = (typeof window.DASH_API_BASE === "string" && window.DASH_API_BASE) || "/api/dashboard";
   const get = (p) => fetch(base + p).then((r) => { if (!r.ok) throw new Error(p + " HTTP " + r.status); return r.json(); });
-  Promise.all([get("/summary"), get("/regions"), get("/cities"), get("/cities.geojson")])
-    .then(([summary, regions, cities, geojson]) => renderDashboard({ summary, regions, cities, geojson }))
+  Promise.all([get("/summary"), get("/regions"), get("/cities"),
+               get("/wards").catch(() => []),  // tolerate older API without /wards
+               get("/cities.geojson")])
+    .then(([summary, regions, cities, wards, geojson]) =>
+      renderDashboard({ summary, regions, cities, wards, geojson }))
     .catch((e) => {
       if (window.DASH) {
         console.warn("dashboard API unavailable; using bundled data.js (" + e.message + ")");
