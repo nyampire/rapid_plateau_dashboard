@@ -185,9 +185,11 @@ function renderDashboard(D) {
   }
   // Deep-link the OSM and Rapid editors at the city/ward N03 representative point
   // (ST_PointOnSurface, so always inside the boundary). Fixed zooms — OSM 13 for
-  // a city-wide view, Rapid 15 to land just below the Plateau data threshold (z16)
-  // so the user can zoom in once to start tracing. Works for both city and ward
-  // records (same repr_lat/lon shape). When unset, falls back to the old behaviour.
+  // a city-wide overview, Rapid 18 (close-in editing view). Rapid loads building
+  // data per tile and a wider zoom (e.g. 15) blanketed the whole city, making the
+  // first paint slow; 18 is roughly a block, so trace-ready and fast. Works for
+  // both city and ward records (same repr_lat/lon shape). When repr_* is unset,
+  // falls back to the old behaviour.
   function osmUrl(c) {
     return (c.repr_lat != null && c.repr_lon != null)
       ? `https://www.openstreetmap.org/#map=13/${c.repr_lat}/${c.repr_lon}`
@@ -195,7 +197,7 @@ function renderDashboard(D) {
   }
   function rapidUrl(c) {
     return (c.repr_lat != null && c.repr_lon != null)
-      ? `https://rapid.nyampire.info/#map=15/${c.repr_lat}/${c.repr_lon}`
+      ? `https://rapid.nyampire.info/#map=18/${c.repr_lat}/${c.repr_lon}`
       : `https://rapid.nyampire.info/`;
   }
   function openDrawer(code) {
