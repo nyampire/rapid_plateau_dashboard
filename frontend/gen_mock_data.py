@@ -48,6 +48,8 @@ SELECT COALESCE(json_agg(c), '[]'::json) FROM (
   SELECT m.city_code, m.city_name, m.prefecture, m.region, m.building_lods, m.spec_versions,
     m.in_local_db, m.osm_import_status,
     to_char(m.osm_import_date,'YYYY-MM-DD') AS osm_import_date, m.osm_validated,
+    round(ST_Y(m.repr_point)::numeric, 6) AS repr_lat,
+    round(ST_X(m.repr_point)::numeric, 6) AS repr_lon,
     s.plateau_count, s.osm_count, s.intersecting_count, s.import_rate
   FROM dash_city_master m
   LEFT JOIN dash_city_stats s ON s.city_code = m.city_code

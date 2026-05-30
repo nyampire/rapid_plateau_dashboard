@@ -17,10 +17,16 @@ CREATE TABLE IF NOT EXISTS dash_city_master (
   osm_import_date   DATE,                             -- wiki completion date
   osm_validated     BOOLEAN,                          -- wiki note '検証済'
   boundary_geom     GEOMETRY(MultiPolygon, 4326),     -- N03 admin boundary (load_n03_boundaries.py). nullable: special datasets / cities absent from N03 fall back to plateau_coverage.
+  repr_point        GEOMETRY(Point, 4326),            -- ST_PointOnSurface of boundary_geom (or plateau_coverage fallback). Used by the drawer to deep-link OSM/Rapid with #map=zoom/lat/lon.
   updated_at        TIMESTAMPTZ DEFAULT now()
 );
 -- Spatial index for point-in-boundary probes (OSM building city_code assignment).
 CREATE INDEX IF NOT EXISTS dash_city_master_boundary_idx ON dash_city_master USING GIST (boundary_geom);
+-- repr_point is only read by SELECT lat/lon for the drawer; no spatial query → no index needed.
+-- Make idempotent for pre-existing tables: ALTER ADD COLUMN IF NOT EXISTS is a no-op
+-- if the column already exists from the CREATE TABLE above; it covers the case where
+-- dash_city_master was created before this column was introduced.
+ALTER TABLE dash_city_master ADD COLUMN IF NOT EXISTS repr_point GEOMETRY(Point, 4326);
 
 -- 4.2 OSM building cache (from public extract; created during PoC).
 CREATE TABLE IF NOT EXISTS dash_osm_buildings (

@@ -109,15 +109,23 @@ cleaned AS (
 ),
 recombined AS (
   SELECT city_code, ST_Multi(ST_Collect(poly)) AS geom FROM cleaned GROUP BY city_code
+),
+-- Materialize the final stored geometry once so boundary_geom and repr_point are
+-- derived from the same shape (otherwise PointOnSurface from the pre-simplified
+-- shape could fall outside the stored boundary in pathological cases).
+stored AS (
+  SELECT city_code,
+         ST_Multi(CASE WHEN %(tol)s > 0
+                       THEN ST_SimplifyPreserveTopology(geom, %(tol)s)
+                       ELSE geom END) AS geom
+  FROM recombined
 )
 UPDATE dash_city_master t
-SET boundary_geom = ST_Multi(
-      CASE WHEN %(tol)s > 0
-           THEN ST_SimplifyPreserveTopology(r.geom, %(tol)s)
-           ELSE r.geom END),
-    updated_at = now()
-FROM recombined r
-WHERE r.city_code = t.city_code;
+SET boundary_geom = stored.geom,
+    repr_point    = ST_PointOnSurface(stored.geom),
+    updated_at    = now()
+FROM stored
+WHERE stored.city_code = t.city_code;
 """
 
 # 政令市 wards whose (prefecture, city_name) didn't match any master row.
@@ -128,6 +136,20 @@ WHERE NULLIF(TRIM(s.n03_005), '') IS NOT NULL
   AND NOT EXISTS (SELECT 1 FROM dash_city_master m
                   WHERE m.prefecture = s.n03_001 AND m.city_name = s.n03_004)
 ORDER BY 1, 2;
+"""
+
+# repr_point fallback for cities that have no N03 boundary (special datasets like
+# 13999 竹芝 / 27999 万博 are absent from N03). Take the coverage representative
+# point so the drawer can still deep-link OSM/Rapid. boundary_geom stays NULL so
+# the geojson layer keeps using its coverage fallback.
+COVERAGE_FALLBACK_SQL = """
+UPDATE dash_city_master t
+SET repr_point = ST_PointOnSurface(cov.geom),
+    updated_at = now()
+FROM plateau_coverage cov
+WHERE cov.city_code = t.city_code
+  AND t.boundary_geom IS NULL
+  AND t.repr_point IS NULL;
 """
 
 
@@ -185,6 +207,9 @@ def main():
                 print(f"WARNING: {len(unmatched)} 政令市 ward group(s) unmatched in master:")
                 for pref, name in unmatched:
                     print(f"  - {pref} {name}")
+
+            cur.execute(COVERAGE_FALLBACK_SQL)
+            print(f"repr_point coverage-fallback applied to {cur.rowcount} boundary-less cities")
 
             cur.execute("SELECT count(*) FILTER (WHERE boundary_geom IS NOT NULL), count(*) "
                         "FROM dash_city_master;")

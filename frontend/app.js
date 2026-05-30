@@ -176,6 +176,21 @@ function renderDashboard(D) {
 
   // ---------- detail drawer ----------
   const byCode = Object.fromEntries(D.cities.map((c) => [c.city_code, c]));
+  // Deep-link the OSM and Rapid editors at the city's N03 representative point
+  // (ST_PointOnSurface, so always inside the boundary). Fixed zooms — OSM 13 for
+  // a city-wide view, Rapid 15 to land just below the Plateau data threshold (z16)
+  // so the user can zoom in once to start tracing. If repr_lat/lon are unset
+  // (e.g. city absent from both N03 and coverage), fall back to the old behaviour.
+  function osmUrl(c) {
+    return (c.repr_lat != null && c.repr_lon != null)
+      ? `https://www.openstreetmap.org/#map=13/${c.repr_lat}/${c.repr_lon}`
+      : `https://www.openstreetmap.org/search?query=${encodeURIComponent(c.city_name)}`;
+  }
+  function rapidUrl(c) {
+    return (c.repr_lat != null && c.repr_lon != null)
+      ? `https://rapid.nyampire.info/#map=15/${c.repr_lat}/${c.repr_lon}`
+      : `https://rapid.nyampire.info/`;
+  }
   function openDrawer(code) {
     const c = byCode[code]; if (!c) return;
     const col = rateColor(c.import_rate) || getCss("--muted");
@@ -192,8 +207,8 @@ function renderDashboard(D) {
       <div class="d-row"><span class="k">Rapid Plateau 作業対象</span><span>${c.in_local_db ? "Rapid対象" : "Rapid対象外"}</span></div>
       <div class="d-row"><span class="k">OSMインポート(wiki)</span><span>${statusBadge(c)} ${c.osm_import_date || ""}</span></div>
       <div class="d-links">
-        <a href="https://www.openstreetmap.org/search?query=${encodeURIComponent(c.city_name)}" target="_blank">OSMで開く</a>
-        <a href="https://rapid.nyampire.info/" target="_blank">Rapidで開く</a>
+        <a href="${osmUrl(c)}" target="_blank">OSMで開く</a>
+        <a href="${rapidUrl(c)}" target="_blank">Rapidで開く</a>
       </div>`;
     $("#drawer").classList.remove("hidden");
     $("#scrim").classList.remove("hidden");
