@@ -47,19 +47,40 @@ def fetch_one_json(sql, params=None):
         conn.close()
 
 
+# SUMMARY filters history to region='__overall__'. After issue #14, dash_progress_history
+# also contains per-region rows; the unfiltered ORDER BY computed_at DESC would otherwise
+# pick whichever region row happened to share the latest timestamp.
 SUMMARY_SQL = """
 SELECT json_build_object(
-  'overall_rate',       (SELECT overall_rate FROM dash_progress_history ORDER BY computed_at DESC LIMIT 1),
-  'prev_rate',          (SELECT overall_rate FROM dash_progress_history ORDER BY computed_at DESC OFFSET 1 LIMIT 1),
-  'total_plateau',      (SELECT total_plateau FROM dash_progress_history ORDER BY computed_at DESC LIMIT 1),
-  'total_intersecting', (SELECT total_intersecting FROM dash_progress_history ORDER BY computed_at DESC LIMIT 1),
+  'overall_rate',       (SELECT overall_rate FROM dash_progress_history WHERE region='__overall__' ORDER BY computed_at DESC LIMIT 1),
+  'prev_rate',          (SELECT overall_rate FROM dash_progress_history WHERE region='__overall__' ORDER BY computed_at DESC OFFSET 1 LIMIT 1),
+  'total_plateau',      (SELECT total_plateau FROM dash_progress_history WHERE region='__overall__' ORDER BY computed_at DESC LIMIT 1),
+  'total_intersecting', (SELECT total_intersecting FROM dash_progress_history WHERE region='__overall__' ORDER BY computed_at DESC LIMIT 1),
   'cities_total',       (SELECT count(*) FROM dash_city_master),
   'cities_in_db',       (SELECT count(*) FROM dash_city_master WHERE in_local_db),
   'cities_osm_done',    (SELECT count(*) FROM dash_city_master WHERE osm_import_status='done'),
   'cities_measured',    (SELECT count(*) FROM dash_city_stats),
-  'computed_at',        (SELECT to_char(computed_at,'YYYY-MM-DD') FROM dash_progress_history ORDER BY computed_at DESC LIMIT 1),
+  'computed_at',        (SELECT to_char(computed_at,'YYYY-MM-DD') FROM dash_progress_history WHERE region='__overall__' ORDER BY computed_at DESC LIMIT 1),
   'trend',              (SELECT json_agg(json_build_object('date', to_char(computed_at,'YYYY-MM-DD'), 'rate', overall_rate))
-                         FROM (SELECT computed_at, overall_rate FROM dash_progress_history ORDER BY computed_at) s)
+                         FROM (SELECT computed_at, overall_rate FROM dash_progress_history WHERE region='__overall__' ORDER BY computed_at) s)
+);
+"""
+
+# Per-region time series. Default region='__overall__' returns the same trend as
+# /summary; pass region=関東 / 中部 / ... for a region-specific curve. Issue #14.
+PROGRESS_SQL = """
+SELECT json_build_object(
+  'region',             %(region)s,
+  'current_rate',       (SELECT overall_rate FROM dash_progress_history WHERE region=%(region)s ORDER BY computed_at DESC LIMIT 1),
+  'prev_rate',          (SELECT overall_rate FROM dash_progress_history WHERE region=%(region)s ORDER BY computed_at DESC OFFSET 1 LIMIT 1),
+  'total_plateau',      (SELECT total_plateau FROM dash_progress_history WHERE region=%(region)s ORDER BY computed_at DESC LIMIT 1),
+  'total_intersecting', (SELECT total_intersecting FROM dash_progress_history WHERE region=%(region)s ORDER BY computed_at DESC LIMIT 1),
+  'cities_total',       (SELECT cities_total FROM dash_progress_history WHERE region=%(region)s ORDER BY computed_at DESC LIMIT 1),
+  'cities_in_db',       (SELECT cities_in_db FROM dash_progress_history WHERE region=%(region)s ORDER BY computed_at DESC LIMIT 1),
+  'cities_osm_done',    (SELECT cities_osm_done FROM dash_progress_history WHERE region=%(region)s ORDER BY computed_at DESC LIMIT 1),
+  'computed_at',        (SELECT to_char(computed_at,'YYYY-MM-DD') FROM dash_progress_history WHERE region=%(region)s ORDER BY computed_at DESC LIMIT 1),
+  'trend',              (SELECT json_agg(json_build_object('date', to_char(computed_at,'YYYY-MM-DD'), 'rate', overall_rate))
+                         FROM (SELECT computed_at, overall_rate FROM dash_progress_history WHERE region=%(region)s ORDER BY computed_at) s)
 );
 """
 
@@ -147,6 +168,15 @@ def summary():
 @router.get("/regions")
 def regions():
     return fetch_one_json(REGIONS_SQL)
+
+
+@router.get("/progress")
+def progress(region: str = "__overall__"):
+    """Per-region progress trend. region='__overall__' (default) = nationwide."""
+    data = fetch_one_json(PROGRESS_SQL, {"region": region})
+    if data is None or data.get("current_rate") is None:
+        raise HTTPException(status_code=404, detail=f"no history for region={region!r}")
+    return data
 
 
 @router.get("/cities")

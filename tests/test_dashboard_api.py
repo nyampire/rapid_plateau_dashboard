@@ -93,5 +93,58 @@ def test_wards(client, db):
     assert w["intersecting_count"] == 5000
 
 
+def test_progress_overall_default_and_region_filter(client, db):
+    # Reset history so we own the entire timeline and assertions don't depend on
+    # the client fixture's one-row seed.
+    with db.cursor() as cur:
+        cur.execute("TRUNCATE dash_progress_history;")
+        cur.execute("""
+            INSERT INTO dash_progress_history
+              (computed_at, region, total_plateau, total_intersecting, overall_rate,
+               cities_total, cities_in_db, cities_osm_done) VALUES
+              (now() - interval '7 days', '関東',        500, 250, 50.00, 100, 80, 20),
+              (now() - interval '7 days', '中部',        300, 120, 40.00,  50, 40, 10),
+              (now() - interval '7 days', '__overall__', 800, 370, 46.25, 150, 120, 30),
+              (now(),                      '関東',        500, 300, 60.00, 100, 80, 20),
+              (now(),                      '中部',        300, 150, 50.00,  50, 40, 10),
+              (now(),                      '__overall__', 800, 450, 56.25, 150, 120, 30);
+        """)
+
+    # Default region = '__overall__': returns the nationwide trend.
+    j = client.get("/api/dashboard/progress").json()
+    assert j["region"] == "__overall__"
+    assert float(j["current_rate"]) == 56.25
+    assert float(j["prev_rate"]) == 46.25
+    assert len(j["trend"]) == 2
+
+    # Region filter returns only that region's series, no overall leakage.
+    j = client.get("/api/dashboard/progress?region=関東").json()
+    assert j["region"] == "関東"
+    assert float(j["current_rate"]) == 60.00
+    assert float(j["prev_rate"]) == 50.00
+    assert j["cities_total"] == 100
+    assert len(j["trend"]) == 2
+    rates = [float(t["rate"]) for t in j["trend"]]
+    assert rates == [50.00, 60.00]  # ordered ASC by computed_at
+
+    # Unknown region → 404.
+    assert client.get("/api/dashboard/progress?region=does_not_exist").status_code == 404
+
+
+def test_summary_still_reads_overall_after_region_split(client, db):
+    """Sanity check: after issue #14, /summary must keep filtering history to
+    region='__overall__' so per-region rows don't leak into the headline rate."""
+    with db.cursor() as cur:
+        # Newer per-region row with a wildly different rate — must NOT win.
+        cur.execute("""
+            INSERT INTO dash_progress_history
+              (computed_at, region, total_plateau, total_intersecting, overall_rate,
+               cities_total, cities_in_db, cities_osm_done)
+            VALUES (now() + interval '1 second', '関東', 1, 1, 99.99, 1, 1, 1);
+        """)
+    j = client.get("/api/dashboard/summary").json()
+    assert float(j["overall_rate"]) == 52.0  # the fixture's __overall__ row
+
+
 def test_health(client):
     assert client.get("/health").json()["status"] == "ok"

@@ -100,3 +100,44 @@ def test_ward_stats_filters_by_boundary(db):
     assert plateau_count == 2   # WB1, WB2 (WB3 outside ward, WB4 is a part)
     assert intersecting == 1    # WB1 only
     assert osm_count == 2       # WB1's covering OSM + lone in-ward OSM; the 77777-parent one is excluded
+
+
+# Per-region history rollup. Issue #14: one snapshot writes N region rows + one
+# '__overall__' grand-total row in a single INSERT.
+def test_progress_history_insert_emits_per_region_and_overall(db):
+    with db.cursor() as cur:
+        # 2 cities in 関東, 1 city in 中部. Each has a dash_city_stats row.
+        cur.executemany(
+            "INSERT INTO dash_city_master(city_code,city_name,region,in_local_db,osm_import_status) "
+            "VALUES (%s,%s,%s,%s,%s)",
+            [("13104", "新宿区", "関東", True,  "done"),
+             ("13115", "杉並区", "関東", True,  "not_started"),
+             ("23100", "名古屋市", "中部", True, "done")],
+        )
+        cur.executemany(
+            "INSERT INTO dash_city_stats(city_code,plateau_count,osm_count,intersecting_count,import_rate,computed_at) "
+            "VALUES (%s,%s,%s,%s,%s, now())",
+            [("13104", 100, 200, 90, 90.00),
+             ("13115", 200, 300, 100, 50.00),
+             ("23100", 400, 500, 300, 75.00)],
+        )
+
+        cur.execute(compute_stats.PROGRESS_HISTORY_INSERT_SQL)
+
+        cur.execute("""
+            SELECT region, total_plateau, total_intersecting, float8(overall_rate),
+                   cities_total, cities_in_db, cities_osm_done
+            FROM dash_progress_history
+            ORDER BY region
+        """)
+        rows = {r[0]: r[1:] for r in cur.fetchall()}
+
+    # 3 rows: 関東 / 中部 / __overall__
+    assert set(rows.keys()) == {"関東", "中部", "__overall__"}
+
+    # 関東 = 13104 + 13115
+    assert rows["関東"] == (300, 190, 63.33, 2, 2, 1)
+    # 中部 = 23100 only
+    assert rows["中部"] == (400, 300, 75.00, 1, 1, 1)
+    # __overall__ = sum of all
+    assert rows["__overall__"] == (700, 490, 70.00, 3, 3, 2)

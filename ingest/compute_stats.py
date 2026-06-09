@@ -93,6 +93,35 @@ WHERE w.ward_code = %(ward)s
   AND ST_Contains(w.boundary_geom, ST_PointOnSurface(o.geom));
 """
 
+# Issue #14: each snapshot writes one row per region plus one '__overall__'
+# grand-total row. GROUPING SETS gives us both in a single INSERT; GROUPING()
+# flags the grand total so a city with NULL region (shouldn't happen, but
+# defensive) doesn't collide with the sentinel.
+PROGRESS_HISTORY_INSERT_SQL = """
+INSERT INTO dash_progress_history
+  (computed_at, region, total_plateau, total_intersecting, overall_rate,
+   cities_total, cities_in_db, cities_osm_done)
+WITH cb AS (
+  SELECT m.region, m.in_local_db, m.osm_import_status,
+         s.plateau_count, s.intersecting_count
+  FROM dash_city_master m
+  LEFT JOIN dash_city_stats s ON s.city_code = m.city_code
+)
+SELECT
+  now(),
+  CASE WHEN GROUPING(cb.region) = 1 THEN '__overall__'
+       ELSE COALESCE(cb.region, '__unknown__') END,
+  COALESCE(sum(cb.plateau_count), 0),
+  COALESCE(sum(cb.intersecting_count), 0),
+  round(100.0 * COALESCE(sum(cb.intersecting_count), 0)
+        / NULLIF(sum(cb.plateau_count), 0), 2),
+  count(*),
+  count(*) FILTER (WHERE cb.in_local_db),
+  count(*) FILTER (WHERE cb.osm_import_status = 'done')
+FROM cb
+GROUP BY GROUPING SETS ((cb.region), ());
+"""
+
 
 def target_cities(cur, city):
     if city:
@@ -268,27 +297,20 @@ def main():
                     print(f"skipped {len(ward_skipped)} ward(s): {','.join(ward_skipped)}")
 
             if not args.skip_history:
-                cur.execute("""
-                    INSERT INTO dash_progress_history
-                      (computed_at, total_plateau, total_intersecting, overall_rate,
-                       cities_total, cities_in_db, cities_osm_done)
-                    SELECT now(),
-                      COALESCE(sum(s.plateau_count),0),
-                      COALESCE(sum(s.intersecting_count),0),
-                      round(100.0*COALESCE(sum(s.intersecting_count),0)
-                            / NULLIF(sum(s.plateau_count),0), 2),
-                      (SELECT count(*) FROM dash_city_master),
-                      (SELECT count(*) FROM dash_city_master WHERE in_local_db),
-                      (SELECT count(*) FROM dash_city_master WHERE osm_import_status='done')
-                    FROM dash_city_stats s;
-                """)
+                cur.execute(PROGRESS_HISTORY_INSERT_SQL)
                 conn.commit()
-                cur.execute("""SELECT total_plateau, total_intersecting, overall_rate,
-                               cities_total, cities_in_db, cities_osm_done
-                               FROM dash_progress_history ORDER BY computed_at DESC LIMIT 1;""")
-                tp, ti, orr, ct, cdb, cod = cur.fetchone()
-                print(f"progress: overall_rate={orr}% ({ti}/{tp}); "
-                      f"cities total={ct} in_db={cdb} osm_done={cod}")
+                cur.execute("""
+                    SELECT region, total_plateau, total_intersecting, overall_rate,
+                           cities_total, cities_in_db, cities_osm_done
+                    FROM dash_progress_history
+                    WHERE computed_at = (SELECT max(computed_at) FROM dash_progress_history)
+                    ORDER BY region = '__overall__' DESC, region;
+                """)
+                rows = cur.fetchall()
+                for region, tp, ti, orr, ct, cdb, cod in rows:
+                    label = "全国" if region == '__overall__' else region
+                    print(f"progress[{label}]: rate={orr}% ({ti}/{tp}); "
+                          f"cities total={ct} in_db={cdb} osm_done={cod}")
 
             cur.execute("SELECT pg_advisory_unlock(hashtext(%s));", (LOCK_KEY,))
     finally:

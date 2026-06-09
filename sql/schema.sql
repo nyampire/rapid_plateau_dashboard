@@ -50,16 +50,41 @@ CREATE TABLE IF NOT EXISTS dash_city_stats (
   computed_at        TIMESTAMPTZ
 );
 
--- 4.4 Overall progress time series (trend).
+-- 4.4 Progress time series (trend). Each snapshot has one row per region plus
+-- one '__overall__' aggregate row; the latter preserves the original single-row
+-- shape used by /api/dashboard/summary. issue #14.
 CREATE TABLE IF NOT EXISTS dash_progress_history (
-  computed_at        TIMESTAMPTZ PRIMARY KEY,
+  computed_at        TIMESTAMPTZ,
+  region             TEXT NOT NULL DEFAULT '__overall__',  -- '__overall__' = nationwide
   total_plateau      BIGINT,
   total_intersecting BIGINT,
   overall_rate       NUMERIC(5,2),   -- building-weighted
-  cities_total       INTEGER,        -- denominator (national PLATEAU cities)
+  cities_total       INTEGER,        -- denominator (PLATEAU cities in this region)
   cities_in_db       INTEGER,        -- ingested into our DB
-  cities_osm_done    INTEGER         -- wiki-'done' cities
+  cities_osm_done    INTEGER,        -- wiki-'done' cities
+  PRIMARY KEY (computed_at, region)
 );
+-- Migration: rows created before issue #14 had only (computed_at) as PK and no
+-- region column. ADD COLUMN IF NOT EXISTS fills them with '__overall__' (DEFAULT),
+-- then swap the single-column PK out for the composite one.
+ALTER TABLE dash_progress_history ADD COLUMN IF NOT EXISTS region TEXT NOT NULL DEFAULT '__overall__';
+DO $$
+BEGIN
+  IF EXISTS (
+    SELECT 1 FROM pg_constraint
+    WHERE conname = 'dash_progress_history_pkey'
+      AND conrelid = 'dash_progress_history'::regclass
+      AND array_length(conkey, 1) = 1
+  ) THEN
+    ALTER TABLE dash_progress_history DROP CONSTRAINT dash_progress_history_pkey;
+    ALTER TABLE dash_progress_history ADD CONSTRAINT dash_progress_history_pkey
+      PRIMARY KEY (computed_at, region);
+  END IF;
+END $$;
+-- Time-series queries filter by region first then order by time. The PK
+-- (computed_at, region) is the wrong order for that, so add the reverse.
+CREATE INDEX IF NOT EXISTS dash_progress_history_region_idx
+  ON dash_progress_history (region, computed_at DESC);
 
 -- 4.5 Designated-city wards (政令市の区). Parallel to dash_city_master without
 -- changing the 1:1 mapping between dash_city_master and the PLATEAU 306-city list.
