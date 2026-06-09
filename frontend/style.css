@@ -21,6 +21,17 @@ h2{font-size:14px;margin:0 0 10px;font-weight:600}
 .pagefoot{text-align:right;color:var(--muted);font-size:12px;padding:6px 20px 22px}
 .pagefoot a{color:inherit;text-decoration:none}
 .pagefoot a:hover,.pagefoot a:focus{color:var(--txt);text-decoration:underline}
+.pagefoot .source-code{display:inline-flex;align-items:center;gap:6px;
+  margin-top:10px;padding:5px 12px;
+  border:1px solid var(--line);border-radius:8px;background:var(--panel)}
+.pagefoot .source-code .github-mark{fill:var(--txt);opacity:.85;flex-shrink:0}
+.pagefoot .source-code .label{color:var(--muted)}
+.pagefoot .source-code .sep{color:var(--muted);opacity:.5}
+.pagefoot .source-code a{color:var(--txt);text-decoration:none;
+  padding:1px 6px;border-radius:4px;
+  transition:background-color .15s, color .15s}
+.pagefoot .source-code a:hover,
+.pagefoot .source-code a:focus{background-color:var(--accent);color:#fff;text-decoration:none}
 .rapid-link{display:inline-flex;align-items:center;gap:8px;text-decoration:none;white-space:nowrap;
   background:#c70bc6;color:#fff;font-weight:600;font-size:13px;
   padding:8px 14px;border-radius:8px;border:1px solid #e23ce0;
