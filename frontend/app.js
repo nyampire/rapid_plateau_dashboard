@@ -67,9 +67,20 @@ function renderDashboard(D) {
     card.dataset.region = r.region;
     const rate = r.rate;
     const color = rateColor(rate) || getCss("--r-none");
+    // delta vs last week / vs ~one month ago — hide each individually when its
+    // prior datapoint isn't there yet (per-region history only starts accruing
+    // from the first weekly batch after Phase 1+2 went live).
+    const deltaHTML = (label, prev) => {
+      if (rate == null || prev == null) return "";
+      const d = rate - prev;
+      const sign = d >= 0 ? "+" : "−";
+      return `<span class="rdelta"><span class="dlabel">${label}</span>${sign}${Math.abs(d).toFixed(2)}pt</span>`;
+    };
+    const deltas = deltaHTML("先週比", r.prev_rate_1w) + deltaHTML("過去1ヶ月", r.prev_rate_1m);
     card.innerHTML =
       `<div class="rname">${esc(r.region)}</div>` +
       `<div class="rrate" style="color:${color}">${rate != null ? rate + "%" : "<span class='na'>未計測</span>"}</div>` +
+      (deltas ? `<div class="rdeltas">${deltas}</div>` : "") +
       `<div class="bar"><i style="width:${rate != null ? rate : 0}%;background:${color}"></i></div>` +
       `<div class="rsub" title="Rapid対象＝Plateau データがバックエンドに取り込まれ、率を計算できる都市">Rapid対象 ${r.cities_in_db}/${r.cities_total}都市 ・ インポート完了 ${r.cities_done}都市</div>`;
     card.onclick = () => {
