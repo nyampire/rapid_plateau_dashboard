@@ -102,6 +102,10 @@ h2{font-size:14px;margin:0 0 10px;font-weight:600}
 .region-card.active{border-color:var(--accent);box-shadow:0 0 0 1px var(--accent)}
 .region-card .rname{font-weight:600;margin-bottom:6px;display:flex;justify-content:space-between}
 .region-card .rrate{font-size:22px;font-weight:700}
+.region-card .rdeltas{display:flex;flex-direction:column;gap:1px;margin-top:3px;font-size:11px;
+  color:var(--txt);font-variant-numeric:tabular-nums}
+.region-card .rdelta{display:inline-flex;gap:5px;align-items:baseline}
+.region-card .rdelta .dlabel{color:var(--muted);font-size:10px;min-width:54px}
 .region-card .rsub{color:var(--muted);font-size:11px;margin-top:2px}
 .bar{height:6px;border-radius:3px;background:var(--r-na);overflow:hidden;margin:6px 0}
 .bar > i{display:block;height:100%}

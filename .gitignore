@@ -18,3 +18,6 @@ venv/
 *.local
 *.local.md
 .DS_Store
+
+# Local Claude Code dev config (preview launch settings)
+.claude/

@@ -93,6 +93,40 @@ def test_wards(client, db):
     assert w["intersecting_count"] == 5000
 
 
+def test_regions_includes_prior_week_and_month_rates(client, db):
+    """/regions exposes prev_rate_1w (OFFSET 1) and prev_rate_1m (OFFSET 4)
+    for the per-region delta display on the dashboard cards."""
+    with db.cursor() as cur:
+        cur.execute("TRUNCATE dash_progress_history;")
+        # 5 weekly rows for 関東: oldest=40.0, then 42, 44, 46, latest=50.
+        # 1 week ago = 46.0 (OFFSET 1); 4 weeks ago (= 1 month) = 40.0 (OFFSET 4).
+        cur.execute(
+            """
+            INSERT INTO dash_progress_history
+              (computed_at, region, total_plateau, total_intersecting, overall_rate,
+               cities_total, cities_in_db, cities_osm_done) VALUES
+              (now() - interval '28 days', '関東', 100, 40, 40.00, 1, 1, 0),
+              (now() - interval '21 days', '関東', 100, 42, 42.00, 1, 1, 0),
+              (now() - interval '14 days', '関東', 100, 44, 44.00, 1, 1, 0),
+              (now() - interval '7 days',  '関東', 100, 46, 46.00, 1, 1, 0),
+              (now(),                       '関東', 100, 50, 50.00, 1, 1, 0);
+            """
+        )
+
+    rows = {r["region"]: r for r in client.get("/api/dashboard/regions").json()}
+    kanto = rows["関東"]
+    assert float(kanto["prev_rate_1w"]) == 46.00
+    assert float(kanto["prev_rate_1m"]) == 40.00
+    # Regions without enough history → NULL (frontend hides the delta).
+    # 関東 has 5 rows so both fields are set; if we had only 3 rows, prev_rate_1m
+    # would be NULL — confirmed by removing the oldest row.
+    with db.cursor() as cur:
+        cur.execute("DELETE FROM dash_progress_history WHERE computed_at < now() - interval '20 days';")
+    kanto2 = {r["region"]: r for r in client.get("/api/dashboard/regions").json()}["関東"]
+    assert kanto2["prev_rate_1m"] is None
+    assert float(kanto2["prev_rate_1w"]) == 46.00
+
+
 def test_progress_overall_default_and_region_filter(client, db):
     # Reset history so we own the entire timeline and assertions don't depend on
     # the client fixture's one-row seed.

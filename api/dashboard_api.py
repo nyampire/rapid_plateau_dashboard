@@ -93,7 +93,13 @@ SELECT COALESCE(json_agg(r), '[]'::json) FROM (
     count(s.city_code) AS cities_measured,
     sum(s.plateau_count) AS plateau,
     sum(s.intersecting_count) AS intersecting,
-    round(100.0*sum(s.intersecting_count)/NULLIF(sum(s.plateau_count),0), 1) AS rate
+    round(100.0*sum(s.intersecting_count)/NULLIF(sum(s.plateau_count),0), 1) AS rate,
+    -- Per-region rate from prior weekly batches. OFFSET 1 = last week, OFFSET 4 = ~one month
+    -- ago (4 weekly batches). NULL until history accrues; UI hides the delta in that case.
+    (SELECT overall_rate FROM dash_progress_history
+       WHERE region = m.region ORDER BY computed_at DESC OFFSET 1 LIMIT 1) AS prev_rate_1w,
+    (SELECT overall_rate FROM dash_progress_history
+       WHERE region = m.region ORDER BY computed_at DESC OFFSET 4 LIMIT 1) AS prev_rate_1m
   FROM dash_city_master m
   LEFT JOIN dash_city_stats s ON s.city_code = m.city_code
   GROUP BY m.region
