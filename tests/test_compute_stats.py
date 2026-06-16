@@ -141,3 +141,121 @@ def test_progress_history_insert_emits_per_region_and_overall(db):
     assert rows["中部"] == (400, 300, 75.00, 1, 1, 1)
     # __overall__ = sum of all
     assert rows["__overall__"] == (700, 490, 70.00, 3, 3, 2)
+
+
+# Issue #17 edge cases: untouched-but-mastered cities, all-zero rate, NULL region.
+# Each test is independent (db fixture truncates between runs).
+
+def test_progress_history_unmeasured_and_not_in_db_counted_in_total_only(db):
+    """A region with measured + unmeasured (no stats row) + not-in-db cities.
+
+    cities_total counts every dash_city_master row in the region.
+    cities_in_db counts only in_local_db=TRUE.
+    Aggregates over plateau/intersecting ignore the LEFT-JOIN NULLs.
+    """
+    with db.cursor() as cur:
+        cur.executemany(
+            "INSERT INTO dash_city_master(city_code,city_name,region,in_local_db,osm_import_status) "
+            "VALUES (%s,%s,%s,%s,%s)",
+            # 関東 region:
+            #   A measured + in_local_db
+            #   B in_local_db but no dash_city_stats row yet (未計測)
+            #   C not in_local_db (PLATEAU 公開はされているが本 DB 未取込)
+            [("13101", "千代田区", "関東", True,  "done"),
+             ("13102", "中央区",   "関東", True,  "not_started"),
+             ("13103", "港区",     "関東", False, "not_started")],
+        )
+        cur.execute(
+            "INSERT INTO dash_city_stats(city_code,plateau_count,osm_count,intersecting_count,import_rate,computed_at) "
+            "VALUES (%s,%s,%s,%s,%s, now())",
+            ("13101", 100, 200, 50, 50.00),
+        )
+
+        cur.execute(compute_stats.PROGRESS_HISTORY_INSERT_SQL)
+
+        cur.execute("""
+            SELECT region, total_plateau, total_intersecting, float8(overall_rate),
+                   cities_total, cities_in_db, cities_osm_done
+            FROM dash_progress_history
+            ORDER BY region
+        """)
+        rows = {r[0]: r[1:] for r in cur.fetchall()}
+
+    assert set(rows.keys()) == {"関東", "__overall__"}
+    # 関東: totals only count 13101's stats; 13102 (no stats) and 13103 (no stats)
+    # contribute NULLs to the sums which COALESCE keeps at 100/50.
+    # cities_total=3 (master rows), cities_in_db=2 (A,B), cities_osm_done=1 (A).
+    assert rows["関東"] == (100, 50, 50.00, 3, 2, 1)
+    assert rows["__overall__"] == (100, 50, 50.00, 3, 2, 1)
+
+
+def test_progress_history_zero_plateau_yields_null_rate(db):
+    """When every city in a region has plateau_count=0 (or no stats), the
+    overall_rate must be NULL — NULLIF(sum, 0) protects against div-by-zero.
+    """
+    with db.cursor() as cur:
+        cur.executemany(
+            "INSERT INTO dash_city_master(city_code,city_name,region,in_local_db,osm_import_status) "
+            "VALUES (%s,%s,%s,%s,%s)",
+            # 北海道 region: 1 city with all-zero stats, 1 city without any stats.
+            [("01100", "札幌市", "北海道", True,  "not_started"),
+             ("01202", "函館市", "北海道", True,  "not_started")],
+        )
+        cur.execute(
+            "INSERT INTO dash_city_stats(city_code,plateau_count,osm_count,intersecting_count,import_rate,computed_at) "
+            "VALUES (%s,%s,%s,%s,%s, now())",
+            ("01100", 0, 0, 0, None),
+        )
+
+        cur.execute(compute_stats.PROGRESS_HISTORY_INSERT_SQL)
+
+        cur.execute("""
+            SELECT region, total_plateau, total_intersecting, overall_rate,
+                   cities_total, cities_in_db
+            FROM dash_progress_history
+            ORDER BY region
+        """)
+        rows = {r[0]: r[1:] for r in cur.fetchall()}
+
+    assert set(rows.keys()) == {"北海道", "__overall__"}
+    # totals coalesce to 0; overall_rate stays NULL via NULLIF.
+    assert rows["北海道"] == (0, 0, None, 2, 2)
+    assert rows["__overall__"] == (0, 0, None, 2, 2)
+
+
+def test_progress_history_null_region_falls_under_unknown(db):
+    """A dash_city_master row with region=NULL (allowed by the schema) lands in
+    a '__unknown__' bucket so it doesn't collide with the '__overall__' sentinel.
+
+    This documents the current behaviour. If we ever decide to drop NULL-region
+    cities silently, this test will catch the change.
+    """
+    with db.cursor() as cur:
+        cur.executemany(
+            "INSERT INTO dash_city_master(city_code,city_name,region,in_local_db,osm_import_status) "
+            "VALUES (%s,%s,%s,%s,%s)",
+            [("99001", "謎市", None,  True, "not_started"),
+             ("13104", "新宿区", "関東", True, "done")],
+        )
+        cur.executemany(
+            "INSERT INTO dash_city_stats(city_code,plateau_count,osm_count,intersecting_count,import_rate,computed_at) "
+            "VALUES (%s,%s,%s,%s,%s, now())",
+            [("99001", 100, 100, 80, 80.00),
+             ("13104", 200, 200, 100, 50.00)],
+        )
+
+        cur.execute(compute_stats.PROGRESS_HISTORY_INSERT_SQL)
+
+        cur.execute("""
+            SELECT region, total_plateau, total_intersecting, float8(overall_rate),
+                   cities_total, cities_in_db
+            FROM dash_progress_history
+            ORDER BY region
+        """)
+        rows = {r[0]: r[1:] for r in cur.fetchall()}
+
+    assert set(rows.keys()) == {"関東", "__unknown__", "__overall__"}
+    assert rows["__unknown__"] == (100, 80, 80.00, 1, 1)
+    assert rows["関東"] == (200, 100, 50.00, 1, 1)
+    # __overall__ rolls both up, including the NULL-region city.
+    assert rows["__overall__"] == (300, 180, 60.00, 2, 2)
