@@ -103,10 +103,18 @@ journalctl -u rapid-plateau-dashboard.service -f      # ログ
 
 ## フロントエンドのデプロイ
 
-静的フロント（`frontend/`）を配信先（nginx の `/dashboard/` など）へ配置する。**配置前に**キャッシュ無効化ハッシュを更新する:
+静的フロント（`frontend/`）を配信先（nginx の `/dashboard/` など）へ配置する。`style.css` / `app.js` / `data.js` のいずれかを更新した PR では、**コミットに含める前に**キャッシュ無効化ハッシュを再計算する:
 
 ```bash
 python3 frontend/stamp_cache.py          # index.html の ?v= を各アセットの内容ハッシュに更新
+git add frontend/index.html              # 同じコミットに index.html の hash 更新を含める
+```
+
+CI は `python3 frontend/stamp_cache.py --check` でこのハッシュが最新かを検査する。アセットを更新したのに `index.html` の再 stamp を忘れた PR は CI 段階で落ちる。
+
+デプロイ自体は静的配置だけ:
+
+```bash
 rsync -av frontend/ <web>/dashboard/     # 静的ファイル配置（--delete は使わない: 親を巻き込まないため）
 ```
 

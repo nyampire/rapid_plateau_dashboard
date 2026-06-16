@@ -19,3 +19,8 @@ jobs:
       # tests/conftest.py auto-skips the PostGIS-dependent integration tests
       # so this CI run only exercises the unit-level pytest cases.
       - run: pytest
+      # Guard against PRs that updated style.css / app.js / data.js without
+      # rerunning frontend/stamp_cache.py; otherwise the deployed bundle ships
+      # with a stale ?v=<hash> and browsers can serve a stale cache.
+      - name: stamp_cache --check
+        run: python3 frontend/stamp_cache.py --check
