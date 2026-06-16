@@ -127,6 +127,48 @@ def test_regions_includes_prior_week_and_month_rates(client, db):
     assert float(kanto2["prev_rate_1w"]) == 46.00
 
 
+def test_regions_prev_rate_is_scoped_per_region(client, db):
+    """Per-region prev_rate_1w/1m subqueries must be filtered to their own region.
+
+    REGIONS_SQL builds prev_rate via
+        (SELECT overall_rate FROM dash_progress_history
+           WHERE region = m.region ORDER BY computed_at DESC OFFSET 1 LIMIT 1)
+    If that WHERE clause regresses (or someone reuses the same subquery without
+    the predicate), the OFFSET would scan history globally and a region with
+    a newer snapshot would shadow another region's older one — making delta
+    figures correlate with the wrong region.
+
+    We seed two regions with distinct rates at the same two timestamps so the
+    "leaked" answer would be different from the "scoped" answer.
+    """
+    with db.cursor() as cur:
+        # /regions only emits rows whose region appears in dash_city_master, so
+        # add a 中部 city alongside the fixture's 関東 cities.
+        cur.execute(
+            "INSERT INTO dash_city_master(city_code,city_name,prefecture,region,in_local_db,osm_import_status) "
+            "VALUES ('23100','名古屋市','愛知県','中部',true,'done')")
+        cur.execute("TRUNCATE dash_progress_history;")
+        cur.execute(
+            """
+            INSERT INTO dash_progress_history
+              (computed_at, region, total_plateau, total_intersecting, overall_rate,
+               cities_total, cities_in_db, cities_osm_done) VALUES
+              (now() - interval '7 days', '関東', 100, 30, 30.00, 2, 2, 1),
+              (now() - interval '7 days', '中部', 100, 80, 80.00, 1, 1, 1),
+              (now(),                      '関東', 100, 50, 50.00, 2, 2, 1),
+              (now(),                      '中部', 100, 90, 90.00, 1, 1, 1);
+            """
+        )
+
+    rows = {r["region"]: r for r in client.get("/api/dashboard/regions").json()}
+    # Without the WHERE region=… filter both prev_rate_1w values would converge
+    # onto whichever region's now()-row ordering wins the tiebreak.
+    assert float(rows["関東"]["prev_rate_1w"]) == 30.00, \
+        "関東 prev_rate_1w must come from 関東 history, not 中部"
+    assert float(rows["中部"]["prev_rate_1w"]) == 80.00, \
+        "中部 prev_rate_1w must come from 中部 history, not 関東"
+
+
 def test_progress_overall_default_and_region_filter(client, db):
     # Reset history so we own the entire timeline and assertions don't depend on
     # the client fixture's one-row seed.
