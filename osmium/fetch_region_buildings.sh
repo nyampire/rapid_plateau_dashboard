@@ -11,6 +11,12 @@
 #   NOTE: only the *download* is incremental — export+load still process the whole
 #   region each run. (True per-building incremental load is a larger change.)
 #
+# Resilience: the full-download curl retries transient Geofabrik HTTP errors
+# (--retry 3 --retry-delay 10 --retry-all-errors). A single momentary 4xx/5xx on
+# one region used to abort the whole weekly batch (set -e), losing that week's
+# snapshot; the retry absorbs the hiccup so the batch keeps its all-or-nothing
+# consistency without being fragile to a one-off blip.
+#
 # Usage: fetch_region_buildings.sh <region> <out.geojsonseq> [workdir]
 #   region e.g. shikoku, kanto, kansai, ... (Geofabrik asia/japan/<region>-*)
 set -euo pipefail
@@ -33,17 +39,17 @@ if [ -n "$CACHE_DIR" ] && command -v osmupdate >/dev/null 2>&1 && [ -f "$CACHE_D
     mv -f "$NEW_PBF" "$CACHE_DIR/${REGION}.osm.pbf"
   else
     echo "[fetch] osmupdate failed -> full download"
-    curl -sL --fail --max-time 1800 -o "$CACHE_DIR/${REGION}.osm.pbf" "$FULL_URL"
+    curl -sL --fail --retry 3 --retry-delay 10 --retry-all-errors --max-time 1800 -o "$CACHE_DIR/${REGION}.osm.pbf" "$FULL_URL"
   fi
   PBF="$CACHE_DIR/${REGION}.osm.pbf"
 elif [ -n "$CACHE_DIR" ]; then
   mkdir -p "$CACHE_DIR"
   echo "[fetch] full download -> cache (next run incremental once osmupdate is installed)"
-  curl -sL --fail --max-time 1800 -o "$CACHE_DIR/${REGION}.osm.pbf" "$FULL_URL"
+  curl -sL --fail --retry 3 --retry-delay 10 --retry-all-errors --max-time 1800 -o "$CACHE_DIR/${REGION}.osm.pbf" "$FULL_URL"
   PBF="$CACHE_DIR/${REGION}.osm.pbf"
 else
   echo "[fetch] full download $FULL_URL"
-  curl -sL --fail --max-time 1800 -o "$TMP_PBF" "$FULL_URL"
+  curl -sL --fail --retry 3 --retry-delay 10 --retry-all-errors --max-time 1800 -o "$TMP_PBF" "$FULL_URL"
   PBF="$TMP_PBF"
 fi
 echo "[time] fetch: $((SECONDS - t))s ($(ls -lh "$PBF" | awk '{print $5}'))"
