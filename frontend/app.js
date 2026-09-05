@@ -269,11 +269,12 @@ function renderDashboard(D) {
 
   // ---------- small map ----------
   const map = L.map("map", { zoomControl: false }).setView([37.5, 137.5], 4);
-  // CARTO dark basemap (suited for app use; avoids hammering the OSM standard tile
-  // server, which the OSMF tile usage policy discourages for apps). Attribution required.
-  L.tileLayer("https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png",
-    { subdomains: "abcd", maxZoom: 20, opacity: 0.9,
-      attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors &copy; <a href="https://carto.com/attributions">CARTO</a>' }).addTo(map);
+  // Toner raster tiles from the OSMFJ tile server (Japanese labels, no API key).
+  // We moved off CARTO's dark basemap: its free tier now requires a key and stamps
+  // "API KEY REQUIRED" across every tile. Attribution required.
+  L.tileLayer("https://tile.openstreetmap.jp/styles/maptiler-toner-ja/{z}/{x}/{y}.png",
+    { maxZoom: 20, opacity: 0.9,
+      attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors &copy; <a href="https://www.openmaptiles.org/">OpenMapTiles</a>' }).addTo(map);
   L.geoJSON(D.geojson, {
     style: (f) => {
       const r = f.properties.import_rate;
