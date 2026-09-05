@@ -118,7 +118,7 @@ CI は `python3 frontend/stamp_cache.py --check` でこのハッシュが最新�
 rsync -av frontend/ <web>/dashboard/     # 静的ファイル配置（--delete は使わない: 親を巻き込まないため）
 ```
 
-フロントは API（`/api/dashboard/*`）を直読し、不通時のみ同梱 `data.js` にフォールバックする。補助地図は CARTO のダークベースマップを利用。
+フロントは API（`/api/dashboard/*`）を直読し、不通時のみ同梱 `data.js` にフォールバックする。補助地図は OSMFJ タイルサーバの Toner（`maptiler-toner-ja`、ラスタ、鍵不要）を利用。
 
 ## データソース
 
@@ -140,7 +140,7 @@ rsync -av frontend/ <web>/dashboard/     # 静的ファイル配置（--delete �
 
 - **コード**: [MIT License](LICENSE)。
 - **OSM 建物データ**: © OpenStreetMap contributors（[ODbL](https://www.openstreetmap.org/copyright)）。
-- **地図タイル**: © [CARTO](https://carto.com/attributions) ／ © OpenStreetMap contributors。
+- **地図タイル**: © [OpenMapTiles](https://www.openmaptiles.org/) ／ © OpenStreetMap contributors（[OSMFJ タイルサーバ](https://tile.openstreetmap.jp/) 配信）。
 - **PLATEAU 建物データ・整備都市マスタ（attributedata_2025）**: 国土交通省 [Project PLATEAU](https://www.mlit.go.jp/plateau/)（各データの利用規約に従う）。
 - **インポート完了ステータス**: OSM wiki [`JA:MLIT_PLATEAU/imports_list`](https://wiki.openstreetmap.org/wiki/JA:MLIT_PLATEAU/imports_list)。
 - **行政界**: [国土数値情報（行政区域データ N03）](https://nlftp.mlit.go.jp/ksj/gml/datalist/KsjTmplt-N03-2025.html) 国土交通省（[CC BY 4.0](https://creativecommons.org/licenses/by/4.0/deed.ja)）。
