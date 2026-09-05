@@ -13,6 +13,13 @@ Output CSV: city_code,prefecture,region,city_name,building_lods,spec_versions
 Cities deduped across files; spec_versions lists every version a city appears in
 (e.g. 'V3+V4'); row fields are taken from the highest version.
 
+The attribute list does not cover every city PLATEAU actually distributes: 守口市
+(27209) and 門真市 (27223) have 2025 CityGML on the G空間情報センター but appear in
+none of the three workbooks. Codes like those live in --extra (default
+data/plateau_city_master_extra.csv) and are appended to the extracted rows, so
+re-running this script reproduces the full master instead of silently dropping
+them. A code that later shows up in a workbook wins, and the run says so.
+
 Usage:
   python3 extract_city_master.py --xlsx-dir <attributedata dir> -o plateau_city_master_2025.csv
 """
@@ -24,6 +31,8 @@ import re
 import openpyxl
 
 CODE_RE = re.compile(r"^\d{5}$")
+DEFAULT_EXTRA = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))),
+                             "data", "plateau_city_master_extra.csv")
 FILES =[("attributedata_2025_v3.xlsx", "V3建築物", "V3"),
          ("attributedata_2025_v4.xlsx", "V4建築物", "V4"),
          ("attributedata_2025_v5.xlsx", "V5建築物", "V5")]
@@ -60,10 +69,22 @@ def extract_sheet(path, sheet, version):
     return out
 
 
+def read_extra(path):
+    """Rows for cities PLATEAU distributes that the attribute list leaves out."""
+    if not path or not os.path.exists(path):
+        return []
+    with open(path, newline="", encoding="utf-8") as f:
+        rows = [r for r in csv.DictReader(f) if CODE_RE.match((r.get("city_code") or "").strip())]
+    print(f"extra: {len(rows)} cities from {path}")
+    return rows
+
+
 def main():
     ap = argparse.ArgumentParser(description="Extract PLATEAU city master from attributedata_2025 Excel.")
     ap.add_argument("--xlsx-dir", required=True)
     ap.add_argument("-o", "--out", required=True)
+    ap.add_argument("--extra", default=DEFAULT_EXTRA,
+                    help="CSV of cities the attribute list omits (skipped when absent)")
     args = ap.parse_args()
 
     merged = {}    # code -> rec (row fields from highest version)
@@ -84,6 +105,13 @@ def main():
 
     for code, rec in merged.items():
         rec["spec_versions"] = "+".join(v for v in ("V3", "V4", "V5") if v in versions[code])
+
+    for rec in read_extra(args.extra):
+        code = rec["city_code"]
+        if code in merged:
+            print(f"extra {code} is now in the attribute list; drop it from {args.extra}")
+            continue
+        merged[code] = rec
     rows = sorted(merged.values(), key=lambda r: r["city_code"])
     with open(args.out, "w", newline="", encoding="utf-8") as f:
         w = csv.DictWriter(f, fieldnames=["city_code", "prefecture", "region",
