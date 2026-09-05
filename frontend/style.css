@@ -145,6 +145,9 @@ td.code{font-variant-numeric:tabular-nums;color:var(--muted);font-size:12px}
 /* map */
 .right{position:sticky;top:14px}
 #map{height:300px;border-radius:8px;background:#0c1117}
+/* Toner is a light style (white land, black sea). Darken the tiles so the blue
+   coverage fills read against the land instead of washing out on white. */
+#map .leaflet-tile-pane{filter:brightness(.15)}
 .legend{display:flex;flex-wrap:wrap;gap:8px;margin-top:10px;font-size:11px;color:var(--muted)}
 .legend i{display:inline-block;width:11px;height:11px;border-radius:2px;margin-right:4px;vertical-align:-1px}
 
