@@ -4,7 +4,7 @@
   /* coverage scale: single-hue blue ramp (lightness = magnitude). Colorblind-safe,
      no alarm colors — low coverage is a calm dim blue, not red. % is always shown too. */
   --r-high:#6fc0ff; --r-mid:#4f9be0; --r-low:#487aae; --r-min:#3a5a7d;
-  --r-none:#5a6571; --r-na:#2a323d;
+  --r-none:#98a4b3; --r-na:#2a323d;
 }
 *{box-sizing:border-box}
 body{margin:0;background:var(--bg);color:var(--txt);
