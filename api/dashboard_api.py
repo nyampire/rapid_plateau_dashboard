@@ -50,15 +50,21 @@ def fetch_one_json(sql, params=None):
 # SUMMARY filters history to region='__overall__'. After issue #14, dash_progress_history
 # also contains per-region rows; the unfiltered ORDER BY computed_at DESC would otherwise
 # pick whichever region row happened to share the latest timestamp.
+# dash_city_master carries two rows that are PLATEAU datasets rather than
+# municipalities (13999 竹芝地区, 27999 万博). They have no administrative
+# boundary, are never in_local_db, and can never be measured, so counting them
+# inflated every "of N cities" denominator by two. boundary_geom IS NOT NULL is
+# the test rather than a code list: the Rapid API already skips the same rows on
+# that basis, and a future special dataset is covered without a code change.
 SUMMARY_SQL = """
 SELECT json_build_object(
   'overall_rate',       (SELECT overall_rate FROM dash_progress_history WHERE region='__overall__' ORDER BY computed_at DESC LIMIT 1),
   'prev_rate',          (SELECT overall_rate FROM dash_progress_history WHERE region='__overall__' ORDER BY computed_at DESC OFFSET 1 LIMIT 1),
   'total_plateau',      (SELECT total_plateau FROM dash_progress_history WHERE region='__overall__' ORDER BY computed_at DESC LIMIT 1),
   'total_intersecting', (SELECT total_intersecting FROM dash_progress_history WHERE region='__overall__' ORDER BY computed_at DESC LIMIT 1),
-  'cities_total',       (SELECT count(*) FROM dash_city_master),
-  'cities_in_db',       (SELECT count(*) FROM dash_city_master WHERE in_local_db),
-  'cities_osm_done',    (SELECT count(*) FROM dash_city_master WHERE osm_import_status='done'),
+  'cities_total',       (SELECT count(*) FROM dash_city_master WHERE boundary_geom IS NOT NULL),
+  'cities_in_db',       (SELECT count(*) FROM dash_city_master WHERE boundary_geom IS NOT NULL AND in_local_db),
+  'cities_osm_done',    (SELECT count(*) FROM dash_city_master WHERE boundary_geom IS NOT NULL AND osm_import_status='done'),
   'cities_measured',    (SELECT count(*) FROM dash_city_stats),
   'computed_at',        (SELECT to_char(computed_at,'YYYY-MM-DD') FROM dash_progress_history WHERE region='__overall__' ORDER BY computed_at DESC LIMIT 1),
   'trend',              (SELECT json_agg(json_build_object('date', to_char(computed_at,'YYYY-MM-DD'), 'rate', overall_rate))
@@ -102,6 +108,7 @@ SELECT COALESCE(json_agg(r), '[]'::json) FROM (
        WHERE region = m.region ORDER BY computed_at DESC OFFSET 4 LIMIT 1) AS prev_rate_1m
   FROM dash_city_master m
   LEFT JOIN dash_city_stats s ON s.city_code = m.city_code
+  WHERE m.boundary_geom IS NOT NULL
   GROUP BY m.region
   ORDER BY MIN(m.city_code)
 ) r;
@@ -126,7 +133,8 @@ SELECT COALESCE(json_agg(c), '[]'::json) FROM (
   SELECT {CITY_COLS}
   FROM dash_city_master m
   LEFT JOIN dash_city_stats s ON s.city_code = m.city_code
-  WHERE (%(region)s IS NULL OR m.region = %(region)s)
+  WHERE m.boundary_geom IS NOT NULL
+    AND (%(region)s IS NULL OR m.region = %(region)s)
   ORDER BY m.city_code
 ) c;
 """

@@ -106,6 +106,7 @@ WITH cb AS (
          s.plateau_count, s.intersecting_count
   FROM dash_city_master m
   LEFT JOIN dash_city_stats s ON s.city_code = m.city_code
+  WHERE m.boundary_geom IS NOT NULL
 )
 SELECT
   now(),
