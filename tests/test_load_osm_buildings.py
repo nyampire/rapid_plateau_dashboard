@@ -5,6 +5,8 @@ and city_code assignment via the containing admin polygon (N03 boundary_geom
 preferred, plateau_coverage hull as fallback), and that buildings outside every
 admin polygon are dropped.
 """
+from decimal import Decimal
+
 import load_osm_buildings as lo
 
 
@@ -98,7 +100,7 @@ def test_other_regions_rows_survive(db):
 def test_border_building_is_stored_once(db):
     """2 つの地域の抽出に同じ建物が現れても 1 行になる。
 
-    所属は後から読んだ地域に移る。
+    所属は後から読んだ地域に移り、形と市区町村コードも新しいほうで上書きされる。
     翌週にその地域が消して入れ直すので、行は毎週更新される。
     """
     with db.cursor() as cur:
@@ -107,11 +109,14 @@ def test_border_building_is_stored_once(db):
         lo.replace_region_rows(cur, "kanto", "d_a")
 
         _staging(cur, "d_b")
-        _add(cur, "d_b", "A", "w", 42, 0.0)
+        _add(cur, "d_b", "B", "w", 42, 0.5)
         lo.replace_region_rows(cur, "chubu", "d_b")
 
-        cur.execute("SELECT count(*), min(source_region) FROM dash_osm_buildings")
-        assert cur.fetchone() == (1, "chubu")
+        cur.execute("SELECT count(*) FROM dash_osm_buildings")
+        assert cur.fetchone()[0] == 1
+        cur.execute("SELECT source_region, city_code, round(ST_X(ST_Centroid(geom))::numeric, 3) "
+                    "FROM dash_osm_buildings")
+        assert cur.fetchone() == ("chubu", "B", Decimal("0.500"))
 
 
 def test_region_reload_drops_vanished_buildings(db):
