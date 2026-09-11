@@ -90,6 +90,26 @@ def decode_select_sql(staging):
     """
 
 
+# 入れ替えの挿入文。
+# 選択の部分だけを差し替えて、重複を潰す版も作る。
+_INSERT_SQL = (
+    "INSERT INTO dash_osm_buildings (city_code, osm_type, osm_id, geom, source_region) "
+    "{select} "
+    "ON CONFLICT (osm_type, osm_id) DO UPDATE SET "
+    "  city_code = EXCLUDED.city_code, "
+    "  geom = EXCLUDED.geom, "
+    "  source_region = EXCLUDED.source_region, "
+    "  fetched_at = now();"
+)
+
+_SELECT_PLAIN = "SELECT city_code, osm_type, osm_id, geom, %s FROM {decoded}"
+
+_SELECT_DEDUPED = (
+    "SELECT DISTINCT ON (osm_type, osm_id) city_code, osm_type, osm_id, geom, %s "
+    "FROM {decoded} ORDER BY osm_type, osm_id"
+)
+
+
 def replace_region_rows(cur, region, decoded="_decoded"):
     """この地域の抽出から来た行を、新しい抽出の内容で入れ替える。
 
@@ -102,19 +122,35 @@ def replace_region_rows(cur, region, decoded="_decoded"):
     一意索引で 1 行にまとめ、所属を後から読んだ地域に移す。
     翌週にその地域が消して入れ直すため、行は毎週更新される。
 
+    1 つの抽出の中に同じ (osm_type, osm_id) が 2 行あると、
+    ON CONFLICT DO UPDATE は同じ行を 2 度更新できずに失敗する。
+    osmium は 1 つの地物につき 1 つの id しか出さないため、通常は起きない。
+    毎回 DISTINCT ON で潰すと関東の約 600 万行に整列が乗るので、
+    失敗したときだけ潰して入れ直す。
+
     削除した行数を返す。
     """
     cur.execute("DELETE FROM dash_osm_buildings WHERE source_region = %s;", (region,))
     deleted = cur.rowcount
-    cur.execute(
-        "INSERT INTO dash_osm_buildings (city_code, osm_type, osm_id, geom, source_region) "
-        f"SELECT city_code, osm_type, osm_id, geom, %s FROM {decoded} "
-        "ON CONFLICT (osm_type, osm_id) DO UPDATE SET "
-        "  city_code = EXCLUDED.city_code, "
-        "  geom = EXCLUDED.geom, "
-        "  source_region = EXCLUDED.source_region, "
-        "  fetched_at = now();",
-        (region,))
+
+    plain = _INSERT_SQL.format(select=_SELECT_PLAIN.format(decoded=decoded))
+    deduped = _INSERT_SQL.format(select=_SELECT_DEDUPED.format(decoded=decoded))
+
+    # autocommit の接続では SAVEPOINT を置けないが、1 文の失敗が後続を止めることもない。
+    # トランザクションの中では、失敗した時点から戻れるように SAVEPOINT を置く。
+    use_savepoint = not cur.connection.autocommit
+    if use_savepoint:
+        cur.execute("SAVEPOINT before_region_insert;")
+    try:
+        cur.execute(plain, (region,))
+    except psycopg2.errors.CardinalityViolation:
+        if use_savepoint:
+            cur.execute("ROLLBACK TO SAVEPOINT before_region_insert;")
+        print(f"warning: region {region} の抽出に同じ (osm_type, osm_id) が 2 行以上あった")
+        print("重複を 1 件に潰して入れ直す")
+        cur.execute(deduped, (region,))
+    if use_savepoint:
+        cur.execute("RELEASE SAVEPOINT before_region_insert;")
     return deleted
 
 

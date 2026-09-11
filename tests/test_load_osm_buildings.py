@@ -135,3 +135,20 @@ def test_region_reload_drops_vanished_buildings(db):
 
         cur.execute("SELECT osm_id FROM dash_osm_buildings ORDER BY osm_id")
         assert cur.fetchall() == [(1,)]
+
+
+def test_duplicate_ids_in_one_extract_are_collapsed(db):
+    """1 つの抽出に同じ建物が 2 行あっても、落ちずに 1 行として入る。
+
+    osmium は 1 つの地物につき 1 つの id しか出さないので、通常は起きない。
+    起きたときに週次バッチ全体が止まるのを避けるための経路である。
+    """
+    with db.cursor() as cur:
+        _staging(cur, "d_dup")
+        _add(cur, "d_dup", "A", "w", 7, 0.0)
+        _add(cur, "d_dup", "A", "w", 7, 0.5)
+        _add(cur, "d_dup", "A", "w", 8, 1.0)
+        lo.replace_region_rows(cur, "kanto", "d_dup")
+
+        cur.execute("SELECT osm_id, source_region FROM dash_osm_buildings ORDER BY osm_id")
+        assert cur.fetchall() == [(7, "kanto"), (8, "kanto")]
