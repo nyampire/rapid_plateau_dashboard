@@ -80,6 +80,34 @@ def decode_select_sql(staging):
     """
 
 
+def replace_region_rows(cur, region, decoded="_decoded"):
+    """この地域の抽出から来た行を、新しい抽出の内容で入れ替える。
+
+    削除の範囲は「この地域から来た行」であって、「入力に現れた市区町村」ではない。
+    地域の抽出は境界の外へ少しはみ出す。
+    市区町村で削除すると、隣の地域が入れたその市の行まで消えてしまう。
+    2026-09-11 には、これでいわき市の 14 万件が 386 件になっていた。
+
+    県境の建物は隣り合う 2 つの抽出に現れる。
+    一意索引で 1 行にまとめ、所属を後から読んだ地域に移す。
+    翌週にその地域が消して入れ直すため、行は毎週更新される。
+
+    削除した行数を返す。
+    """
+    cur.execute("DELETE FROM dash_osm_buildings WHERE source_region = %s;", (region,))
+    deleted = cur.rowcount
+    cur.execute(
+        "INSERT INTO dash_osm_buildings (city_code, osm_type, osm_id, geom, source_region) "
+        f"SELECT city_code, osm_type, osm_id, geom, %s FROM {decoded} "
+        "ON CONFLICT (osm_type, osm_id) DO UPDATE SET "
+        "  city_code = EXCLUDED.city_code, "
+        "  geom = EXCLUDED.geom, "
+        "  source_region = EXCLUDED.source_region, "
+        "  fetched_at = now();",
+        (region,))
+    return deleted
+
+
 def main():
     ap = argparse.ArgumentParser(description="Load OSM buildings GeoJSONSeq into dash_osm_buildings.")
     ap.add_argument("geojsonseq")

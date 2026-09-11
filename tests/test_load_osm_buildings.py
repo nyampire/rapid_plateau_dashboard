@@ -55,3 +55,76 @@ def test_boundary_preferred_over_coverage(db):
         rows = cur.fetchall()
 
     assert rows == [("D", 6), ("N", 5)]
+
+
+def _staging(cur, name):
+    """_decoded と同じ形の一時表を作る。"""
+    cur.execute(f"CREATE TEMP TABLE {name}("
+                "city_code text, osm_type char(1), osm_id bigint, "
+                "geom geometry(Geometry,4326))")
+
+
+def _add(cur, name, city, osm_type, osm_id, offset_deg):
+    """一時表に建物を 1 件足す。offset_deg で位置をずらす。"""
+    cur.execute(
+        f"INSERT INTO {name}(city_code, osm_type, osm_id, geom) "
+        "SELECT %s, %s, %s, ST_Translate("
+        "  ST_GeomFromText('POLYGON((0 0,0 0.0005,0.0005 0.0005,0.0005 0,0 0))',4326),"
+        "  %s, 0)",
+        (city, osm_type, osm_id, offset_deg))
+
+
+def test_other_regions_rows_survive(db):
+    """後から読む地域の抽出に 1 件はみ出していても、先の地域が入れた行は残る。
+
+    これが 2026-09-11 に見つかった不具合の再現である。
+    いわき市は東北の抽出で 14 万件入ったあと、関東の抽出に南端の数百件が
+    含まれていたため、市区町村コード単位の削除で 14 万件が消えていた。
+    """
+    with db.cursor() as cur:
+        _staging(cur, "d_tohoku")
+        for i in range(1, 101):
+            _add(cur, "d_tohoku", "A", "w", i, i * 0.001)
+        lo.replace_region_rows(cur, "tohoku", "d_tohoku")
+
+        _staging(cur, "d_kanto")
+        _add(cur, "d_kanto", "A", "w", 9001, 0.5)
+        lo.replace_region_rows(cur, "kanto", "d_kanto")
+
+        cur.execute("SELECT count(*) FROM dash_osm_buildings WHERE city_code='A'")
+        assert cur.fetchone()[0] == 101
+
+
+def test_border_building_is_stored_once(db):
+    """2 つの地域の抽出に同じ建物が現れても 1 行になる。
+
+    所属は後から読んだ地域に移る。
+    翌週にその地域が消して入れ直すので、行は毎週更新される。
+    """
+    with db.cursor() as cur:
+        _staging(cur, "d_a")
+        _add(cur, "d_a", "A", "w", 42, 0.0)
+        lo.replace_region_rows(cur, "kanto", "d_a")
+
+        _staging(cur, "d_b")
+        _add(cur, "d_b", "A", "w", 42, 0.0)
+        lo.replace_region_rows(cur, "chubu", "d_b")
+
+        cur.execute("SELECT count(*), min(source_region) FROM dash_osm_buildings")
+        assert cur.fetchone() == (1, "chubu")
+
+
+def test_region_reload_drops_vanished_buildings(db):
+    """同じ地域を読み直すと、抽出から消えた建物は残らない。"""
+    with db.cursor() as cur:
+        _staging(cur, "d_first")
+        _add(cur, "d_first", "A", "w", 1, 0.0)
+        _add(cur, "d_first", "A", "w", 2, 0.01)
+        lo.replace_region_rows(cur, "kanto", "d_first")
+
+        _staging(cur, "d_second")
+        _add(cur, "d_second", "A", "w", 1, 0.0)
+        lo.replace_region_rows(cur, "kanto", "d_second")
+
+        cur.execute("SELECT osm_id FROM dash_osm_buildings ORDER BY osm_id")
+        assert cur.fetchall() == [(1,)]
