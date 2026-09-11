@@ -413,7 +413,12 @@ SELECT count(*) FROM (
 ```
 
 期待する結果: `0` です。
+この確認と Step 3 の間に週次バッチが動くと、新しい重複が入りえます。
+バッチが動いていないことを確かめてから始めてください。
+
 0 でなければ、索引を作る前に次を実行して重複を消します。
+`a.id > b.id` は `id` の小さい古いほうを残します。
+同じ建物なので、どちらを残しても形は変わりません。
 
 ```sql
 DELETE FROM dash_osm_buildings a USING dash_osm_buildings b
@@ -466,13 +471,33 @@ python3 ingest/load_osm_buildings.py /tmp/chubu.geojsonseq --postgres-url "$DATA
 rm -f /tmp/chubu.geojsonseq
 ```
 
-合わせて 1 時間から 1 時間半の見込みです。
-`kanto` が支配的です。
+`tohoku` の 1 本目で実測を取り、そこから `kanto` の所要を見積もり直してから続けてください。
+既存の記録にある 1 時間から 1 時間半という数字は、一意索引を足す前のものです。
+`ON CONFLICT` は行ごとに索引を引くため、挿入は今より遅くなります。
+どれだけ遅くなるかは測らないと分かりません。
 
-- [ ] **Step 5: 集計をやり直す**
+期待する出力: 各地域で `loaded <件数> OSM buildings across <都市数> cities as region <地域名> (replaced 0 rows of that region)` と出ます。
+`replaced 0` は誤りではありません。
+既存の行は `source_region` が空なので、この 1 回目だけは削除が 0 件になります。
+
+- [ ] **Step 5: 3 地域とも成功したことを確かめてから集計をやり直す**
+
+3 地域それぞれが `loaded ... rows` を出し、終了コードが 0 だったことを先に確かめてください。
+1 つでも失敗していたら、ここで止めてその地域をやり直します。
+
+`compute_stats.py` は `dash_progress_history` に 1 行追記します。
+この行は週次実行で上書きされません。
+欠けた状態で走らせると、誤った全国値が履歴に残り、トレンドの図に落ち込みとして出続けます。
 
 ```bash
 python3 ingest/compute_stats.py --postgres-url "$DATABASE_URL"
+```
+
+誤った行を入れてしまったときは、その 1 行を消します。
+
+```sql
+DELETE FROM dash_progress_history
+WHERE computed_at = (SELECT max(computed_at) FROM dash_progress_history);
 ```
 
 - [ ] **Step 6: 6 都市の値を確かめる**
@@ -481,6 +506,11 @@ Step 1 と同じ問い合わせを実行します。
 
 期待する結果: 6 都市の `osm_count` が 4 桁から 6 桁になり、`import_rate` が数十パーセントになります。
 いわき市は `osm_count` が 386 から 10 万件台に増えます。
+
+この 6 都市は、率が低く出た 35 都市を調べて見つけたものです。
+建物の半分を失って率が半減しただけの都市は、この調べ方では見つかりません。
+3 地域の読み直しで全部直ったとは言えません。
+残りは次の日曜の定期実行が 8 地域を読み直したときに揃います。
 
 配信中の API でも確かめます。
 

@@ -61,8 +61,9 @@ def _schema(db_url):
         with conn.cursor() as cur:
             cur.execute(_PLATEAU_FIXTURE_DDL)
             # このブランチ以前に試験を走らせた開発機の DB には osm_id が 1 に固定された行が複数残っている場合がある。
-            # その状態で一意索引を作ろうとすると UniqueViolation で落ちるため、schema.sql を流す前に空にする。
-            # 表がまだ無い場合もあるので IF EXISTS で失敗しないようにする。
+            # その状態で一意索引を作ろうとすると UniqueViolation で落ちる。
+            # schema.sql を流す前に表ごと落とし、作り直させる。
+            # 表がまだ無い場合もあるので IF EXISTS を付ける。
             cur.execute("DROP TABLE IF EXISTS dash_osm_buildings;")
             cur.execute((ROOT / "sql" / "schema.sql").read_text(encoding="utf-8"))
     finally:
