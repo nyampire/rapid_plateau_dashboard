@@ -48,7 +48,7 @@ for r in $REGIONS; do
   echo "[disk] $r start:           $(DISK)"
   "$HERE/osmium/fetch_region_buildings.sh" "$r" "$GJ" "$WORK"
   echo "[disk] $r after fetch ($(du -h "$GJ" 2>/dev/null | cut -f1) geojsonseq): $(DISK)"
-  python3 "$HERE/ingest/load_osm_buildings.py" "$GJ" --postgres-url "$PGURL"
+  python3 "$HERE/ingest/load_osm_buildings.py" "$GJ" --postgres-url "$PGURL" --region "$r"
   rm -f "$GJ"
   echo "[disk] $r after load+clean: $(DISK)"
 done

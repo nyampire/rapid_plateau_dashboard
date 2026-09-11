@@ -8,11 +8,13 @@ Input is produced by the low-memory pipeline (DESIGN.md §3.1):
 Each feature id is osmium's area form 'a<num>' (num even => way, odd => relation).
 city_code is assigned by which plateau_coverage polygon contains the building's
 representative point (interim until N03 admin boundaries; DESIGN.md §9-1). Buildings
-outside every coverage polygon are dropped. Idempotent: reloads replace the affected
-cities' rows.
+outside every coverage polygon are dropped.
+Idempotent: a reload replaces the rows this region's extract produced last time,
+identified by source_region. Region extracts overlap at the border, so a building
+that appears in two regions is kept as one row by the (osm_type, osm_id) unique index.
 
 Usage:
-  python3 load_osm_buildings.py buildings.geojsonseq --postgres-url "$DATABASE_URL"
+  python3 load_osm_buildings.py buildings.geojsonseq --postgres-url "$DATABASE_URL" --region kanto
 """
 import argparse
 import os
@@ -112,6 +114,10 @@ def main():
     ap = argparse.ArgumentParser(description="Load OSM buildings GeoJSONSeq into dash_osm_buildings.")
     ap.add_argument("geojsonseq")
     ap.add_argument("--postgres-url", required=True)
+    ap.add_argument("--region", required=True,
+                    help="Geofabrik の地域名（hokkaido / tohoku / kanto / chubu / "
+                         "kansai / chugoku / shikoku / kyushu）。"
+                         "この名前で入れ替える範囲が決まる。")
     args = ap.parse_args()
 
     print(f"ogr2ogr -> staging {STAGING} (id + geometry only) ...")
@@ -141,15 +147,11 @@ def main():
                 return
 
             t2 = time.time()
-            cur.execute("DELETE FROM dash_osm_buildings WHERE city_code IN "
-                        "(SELECT DISTINCT city_code FROM _decoded);")
-            deleted = cur.rowcount
-            cur.execute("INSERT INTO dash_osm_buildings (city_code, osm_type, osm_id, geom) "
-                        "SELECT city_code, osm_type, osm_id, geom FROM _decoded;")
+            deleted = replace_region_rows(cur, args.region)
             cur.execute(f"DROP TABLE IF EXISTS {STAGING};")
             print(f"[time] delete+insert: {time.time() - t2:.1f}s")
         print(f"loaded {n_rows} OSM buildings across {n_cities} cities "
-              f"(replaced {deleted} existing rows)")
+              f"as region {args.region} (replaced {deleted} rows of that region)")
     finally:
         conn.close()
 
