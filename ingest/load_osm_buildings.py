@@ -8,11 +8,14 @@ Input is produced by the low-memory pipeline (DESIGN.md §3.1):
 Each feature id is osmium's area form 'a<num>' (num even => way, odd => relation).
 city_code is assigned by which plateau_coverage polygon contains the building's
 representative point (interim until N03 admin boundaries; DESIGN.md §9-1). Buildings
-outside every coverage polygon are dropped. Idempotent: reloads replace the affected
-cities' rows.
+outside every coverage polygon are dropped.
+Idempotent: a reload replaces the rows this region's extract produced last time,
+identified by source_region.
+Region extracts overlap at the border, so a building that appears in two regions
+is kept as one row by the (osm_type, osm_id) unique index.
 
 Usage:
-  python3 load_osm_buildings.py buildings.geojsonseq --postgres-url "$DATABASE_URL"
+  python3 load_osm_buildings.py buildings.geojsonseq --postgres-url "$DATABASE_URL" --region kanto
 """
 import argparse
 import os
@@ -22,8 +25,18 @@ import time
 import urllib.parse
 
 import psycopg2
+# psycopg2.errors は import psycopg2 だけでも参照できる版が多い。
+# 版によらず確実にするため明示して取り込む。
+import psycopg2.errors
 
 STAGING = "dash_load_tmp"
+
+# Geofabrik の地域名の一覧。
+# --region に渡した値はそのまま source_region 列に入る。
+# 次回の読み込みでは、この値で source_region の照合をして古い行を削除する。
+# 綴りを誤ると、削除が 1 件も当たらないまま誤った名前で挿入されてしまう。
+REGIONS = ["hokkaido", "tohoku", "kanto", "chubu",
+           "kansai", "chugoku", "shikoku", "kyushu"]
 
 
 def ogr_pg(url):
@@ -80,10 +93,78 @@ def decode_select_sql(staging):
     """
 
 
+# 入れ替えの挿入文。
+# 選択の部分だけを差し替えて、重複を潰す版も作る。
+_INSERT_SQL = (
+    "INSERT INTO dash_osm_buildings (city_code, osm_type, osm_id, geom, source_region) "
+    "{select} "
+    "ON CONFLICT (osm_type, osm_id) DO UPDATE SET "
+    "  city_code = EXCLUDED.city_code, "
+    "  geom = EXCLUDED.geom, "
+    "  source_region = EXCLUDED.source_region, "
+    "  fetched_at = now();"
+)
+
+_SELECT_PLAIN = "SELECT city_code, osm_type, osm_id, geom, %s FROM {decoded}"
+
+_SELECT_DEDUPED = (
+    "SELECT DISTINCT ON (osm_type, osm_id) city_code, osm_type, osm_id, geom, %s "
+    "FROM {decoded} ORDER BY osm_type, osm_id"
+)
+
+
+def replace_region_rows(cur, region, decoded="_decoded"):
+    """この地域の抽出から来た行を、新しい抽出の内容で入れ替える。
+
+    削除の範囲は「この地域から来た行」であって、「入力に現れた市区町村」ではない。
+    地域の抽出は境界の外へ少しはみ出す。
+    市区町村で削除すると、隣の地域が入れたその市の行まで消えてしまう。
+    2026-09-11 には、これでいわき市の 14 万件が 386 件になっていた。
+
+    県境の建物は隣り合う 2 つの抽出に現れる。
+    一意索引で 1 行にまとめ、所属を後から読んだ地域に移す。
+    翌週にその地域が消して入れ直すため、行は毎週更新される。
+
+    1 つの抽出の中に同じ (osm_type, osm_id) が 2 行あると、
+    ON CONFLICT DO UPDATE は同じ行を 2 度更新できずに失敗する。
+    osmium は 1 つの地物につき 1 つの id しか出さないため、通常は起きない。
+    毎回 DISTINCT ON で潰すと関東の約 600 万行に整列が乗るので、
+    失敗したときだけ潰して入れ直す。
+
+    削除した行数を返す。
+    """
+    cur.execute("DELETE FROM dash_osm_buildings WHERE source_region = %s;", (region,))
+    deleted = cur.rowcount
+
+    plain = _INSERT_SQL.format(select=_SELECT_PLAIN.format(decoded=decoded))
+    deduped = _INSERT_SQL.format(select=_SELECT_DEDUPED.format(decoded=decoded))
+
+    # autocommit の接続では SAVEPOINT を置けないが、1 文の失敗が後続を止めることもない。
+    # トランザクションの中では、失敗した時点から戻れるように SAVEPOINT を置く。
+    use_savepoint = not cur.connection.autocommit
+    if use_savepoint:
+        cur.execute("SAVEPOINT before_region_insert;")
+    try:
+        cur.execute(plain, (region,))
+    except psycopg2.errors.CardinalityViolation:
+        if use_savepoint:
+            cur.execute("ROLLBACK TO SAVEPOINT before_region_insert;")
+        print(f"warning: region {region} の抽出に同じ (osm_type, osm_id) が 2 行以上あった")
+        print("重複を 1 件に潰して入れ直す")
+        cur.execute(deduped, (region,))
+    if use_savepoint:
+        cur.execute("RELEASE SAVEPOINT before_region_insert;")
+    return deleted
+
+
 def main():
     ap = argparse.ArgumentParser(description="Load OSM buildings GeoJSONSeq into dash_osm_buildings.")
     ap.add_argument("geojsonseq")
     ap.add_argument("--postgres-url", required=True)
+    ap.add_argument("--region", required=True, choices=REGIONS,
+                    help="Geofabrik の地域名（hokkaido / tohoku / kanto / chubu / "
+                         "kansai / chugoku / shikoku / kyushu）。"
+                         "この名前で入れ替える範囲が決まる。")
     args = ap.parse_args()
 
     print(f"ogr2ogr -> staging {STAGING} (id + geometry only) ...")
@@ -113,15 +194,11 @@ def main():
                 return
 
             t2 = time.time()
-            cur.execute("DELETE FROM dash_osm_buildings WHERE city_code IN "
-                        "(SELECT DISTINCT city_code FROM _decoded);")
-            deleted = cur.rowcount
-            cur.execute("INSERT INTO dash_osm_buildings (city_code, osm_type, osm_id, geom) "
-                        "SELECT city_code, osm_type, osm_id, geom FROM _decoded;")
+            deleted = replace_region_rows(cur, args.region)
             cur.execute(f"DROP TABLE IF EXISTS {STAGING};")
             print(f"[time] delete+insert: {time.time() - t2:.1f}s")
         print(f"loaded {n_rows} OSM buildings across {n_cities} cities "
-              f"(replaced {deleted} existing rows)")
+              f"as region {args.region} (replaced {deleted} rows of that region)")
     finally:
         conn.close()
 

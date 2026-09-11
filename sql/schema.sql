@@ -40,6 +40,19 @@ CREATE TABLE IF NOT EXISTS dash_osm_buildings (
 CREATE INDEX IF NOT EXISTS dash_osm_buildings_geom_idx ON dash_osm_buildings USING GIST (geom);
 CREATE INDEX IF NOT EXISTS dash_osm_buildings_city_idx ON dash_osm_buildings (city_code);
 
+-- 行がどの地域の抽出から来たかを記録する。
+-- dash_city_master.region とは別の区分なので、同じ名前にしない。
+-- 読み込みはこの列で削除の範囲を決める。
+ALTER TABLE dash_osm_buildings ADD COLUMN IF NOT EXISTS source_region TEXT;
+
+-- 県境の建物は隣り合う 2 つの抽出に現れる。
+-- 同じ建物を 1 行に保つための一意索引である。
+CREATE UNIQUE INDEX IF NOT EXISTS dash_osm_buildings_osm_uidx
+  ON dash_osm_buildings (osm_type, osm_id);
+-- source_region は 8 種類しか値を持たないが、四国のように行数の少ない地域では索引が使われうるため残す。
+CREATE INDEX IF NOT EXISTS dash_osm_buildings_source_region_idx
+  ON dash_osm_buildings (source_region);
+
 -- 4.3 Per-city stats snapshot.
 CREATE TABLE IF NOT EXISTS dash_city_stats (
   city_code          TEXT PRIMARY KEY REFERENCES dash_city_master(city_code),
