@@ -25,6 +25,9 @@ import time
 import urllib.parse
 
 import psycopg2
+# psycopg2.errors は import psycopg2 だけでも参照できる版が多い。
+# 版によらず確実にするため明示して取り込む。
+import psycopg2.errors
 
 STAGING = "dash_load_tmp"
 
