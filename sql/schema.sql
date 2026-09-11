@@ -49,6 +49,7 @@ ALTER TABLE dash_osm_buildings ADD COLUMN IF NOT EXISTS source_region TEXT;
 -- 同じ建物を 1 行に保つための一意索引である。
 CREATE UNIQUE INDEX IF NOT EXISTS dash_osm_buildings_osm_uidx
   ON dash_osm_buildings (osm_type, osm_id);
+-- source_region は 8 種類しか値を持たないが、四国のように行数の少ない地域では索引が使われうるため残す。
 CREATE INDEX IF NOT EXISTS dash_osm_buildings_source_region_idx
   ON dash_osm_buildings (source_region);
 

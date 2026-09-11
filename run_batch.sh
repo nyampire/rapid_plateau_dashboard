@@ -28,6 +28,11 @@ while [ $# -gt 0 ]; do
 done
 [ -n "$PGURL" ] || { echo "--postgres-url required"; exit 1; }
 
+# --regions の綴り誤りは、取得(fetch)が終わった後で load_osm_buildings.py の argparse に弾かれる。
+# set -e のため、途中の地域まで投入された状態で止まってしまう。
+# 取得を始める前に、指定された地域名が load_osm_buildings.py の REGIONS に全て含まれることを確かめる。
+python3 -c "import sys; sys.path.insert(0, sys.argv[1]); import load_osm_buildings as l; bad=[r for r in sys.argv[2:] if r not in l.REGIONS]; sys.exit('unknown region: ' + ' '.join(bad) if bad else 0)" "$HERE/ingest" $REGIONS
+
 WORK="$(mktemp -d)"
 trap 'rm -rf "$WORK"' EXIT
 
