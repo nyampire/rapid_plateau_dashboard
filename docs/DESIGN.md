@@ -192,10 +192,15 @@ CREATE TABLE dash_osm_buildings (
   osm_type      CHAR(1),            -- 'w' / 'r'
   osm_id        BIGINT,
   geom          GEOMETRY(Geometry, 4326),
-  fetched_at    TIMESTAMPTZ DEFAULT now()
+  fetched_at    TIMESTAMPTZ DEFAULT now(),
+  source_region TEXT                -- 行がどの地域の抽出から来たかを記録する（読み込みの削除範囲もこの列で決める）
 );
 CREATE INDEX ON dash_osm_buildings USING GIST (geom);
 CREATE INDEX ON dash_osm_buildings (city_code);
+-- 県境の建物は隣り合う 2 つの抽出に現れる。
+-- 同じ建物を 1 行に保つための一意索引である。
+CREATE UNIQUE INDEX ON dash_osm_buildings (osm_type, osm_id);
+CREATE INDEX ON dash_osm_buildings (source_region);
 
 -- 4.3 都市別 統計スナップショット
 CREATE TABLE dash_city_stats (
@@ -409,6 +414,8 @@ outline のみ 78,384 棟(率36.47%) に対し part 込みは 119,001 行(率36.
 | 一時ピーク使用（1 region の geojsonseq＋ogr2ogr staging） | ~5 GB |
 | 永続増加（`dash_osm_buildings`） | +2.1 GB（7.56M 棟）|
 | **必要空き目安** | **永続 ~2.1GB ＋ 一時 ~5GB → 8-10GB 確保推奨** |
+
+`(osm_type, osm_id)` の一意索引を追加したため、この永続増加は上記の値より大きくなる（未計測）。
 
 `run_batch.sh` は region ごとに `[disk] ...` 行を出力し、毎回自己記録する。
 

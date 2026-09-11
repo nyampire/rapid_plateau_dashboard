@@ -17,8 +17,13 @@ def _plateau(cur, ox, oy, s=0.001, part=None):
 
 def _osm(cur, x0, y0, x1, y1):
     wkt = f"POLYGON(({x0} {y0},{x0} {y1},{x1} {y1},{x1} {y0},{x0} {y0}))"
-    cur.execute("INSERT INTO dash_osm_buildings(city_code, osm_type, osm_id, geom) "
-                "VALUES (%s,'w',1, ST_GeomFromText(%s,4326))", (CITY, wkt))
+    # osm_id は (osm_type, osm_id) の一意索引に合わせて呼び出しごとに採番する。
+    cur.execute(
+        "INSERT INTO dash_osm_buildings(city_code, osm_type, osm_id, geom) "
+        "VALUES (%s,'w', (SELECT coalesce(max(osm_id),0)+1 FROM dash_osm_buildings), "
+        "ST_GeomFromText(%s,4326))",
+        (CITY, wkt),
+    )
 
 
 def test_intersection_criterion(db):
@@ -70,8 +75,13 @@ def _parent_plateau(cur, ox, oy, s=0.001, part=None):
 
 def _parent_osm(cur, x0, y0, x1, y1, city=PARENT):
     wkt = f"POLYGON(({x0} {y0},{x0} {y1},{x1} {y1},{x1} {y0},{x0} {y0}))"
-    cur.execute("INSERT INTO dash_osm_buildings(city_code, osm_type, osm_id, geom) "
-                "VALUES (%s,'w',1, ST_GeomFromText(%s,4326))", (city, wkt))
+    # osm_id は (osm_type, osm_id) の一意索引に合わせて呼び出しごとに採番する。
+    cur.execute(
+        "INSERT INTO dash_osm_buildings(city_code, osm_type, osm_id, geom) "
+        "VALUES (%s,'w', (SELECT coalesce(max(osm_id),0)+1 FROM dash_osm_buildings), "
+        "ST_GeomFromText(%s,4326))",
+        (city, wkt),
+    )
 
 
 def test_ward_stats_filters_by_boundary(db):
