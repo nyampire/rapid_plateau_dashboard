@@ -27,6 +27,13 @@ import psycopg2
 
 STAGING = "dash_load_tmp"
 
+# Geofabrik の地域名の一覧。
+# --region に渡した値はそのまま source_region 列に入る。
+# 次回の読み込みでは、この値で source_region の照合をして古い行を削除する。
+# 綴りを誤ると、削除が 1 件も当たらないまま誤った名前で挿入されてしまう。
+REGIONS = ["hokkaido", "tohoku", "kanto", "chubu",
+           "kansai", "chugoku", "shikoku", "kyushu"]
+
 
 def ogr_pg(url):
     """Build ogr2ogr's 'PG:' connection string and an env dict for the subprocess.
@@ -114,7 +121,7 @@ def main():
     ap = argparse.ArgumentParser(description="Load OSM buildings GeoJSONSeq into dash_osm_buildings.")
     ap.add_argument("geojsonseq")
     ap.add_argument("--postgres-url", required=True)
-    ap.add_argument("--region", required=True,
+    ap.add_argument("--region", required=True, choices=REGIONS,
                     help="Geofabrik の地域名（hokkaido / tohoku / kanto / chubu / "
                          "kansai / chugoku / shikoku / kyushu）。"
                          "この名前で入れ替える範囲が決まる。")
