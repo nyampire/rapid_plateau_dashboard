@@ -307,15 +307,58 @@ cd ~/git/rapid_plateau_dashboard && python3 ingest/load_osm_buildings.py /dev/nu
   python3 "$HERE/ingest/load_osm_buildings.py" "$GJ" --postgres-url "$PGURL" --region "$r"
 ```
 
-- [ ] **Step 5: 試験を全部走らせる**
+- [ ] **Step 5: 建物の形と所属も更新されることを試験に足す**
 
-```bash
-cd ~/git/rapid_plateau_dashboard && DASH_TEST_DATABASE_URL=postgresql:///dash_test python3 -m pytest -v
+Task 1 の審査で、`ON CONFLICT` の更新内容のうち `city_code` と `geom` を
+確かめる試験が無いことが分かりました。
+`city_code = EXCLUDED.city_code` と `geom = EXCLUDED.geom` を消しても、
+今の 5 件はすべて通ってしまいます。
+
+`tests/test_load_osm_buildings.py` の `test_border_building_is_stored_once` の
+2 回目の投入で位置をずらし、更新されたことを確かめます。
+関数の中身を次で置き換えます。
+
+```python
+def test_border_building_is_stored_once(db):
+    """2 つの地域の抽出に同じ建物が現れても 1 行になる。
+
+    所属は後から読んだ地域に移り、形と市区町村コードも新しいほうで上書きされる。
+    翌週にその地域が消して入れ直すので、行は毎週更新される。
+    """
+    with db.cursor() as cur:
+        _staging(cur, "d_a")
+        _add(cur, "d_a", "A", "w", 42, 0.0)
+        lo.replace_region_rows(cur, "kanto", "d_a")
+
+        _staging(cur, "d_b")
+        _add(cur, "d_b", "B", "w", 42, 0.5)
+        lo.replace_region_rows(cur, "chubu", "d_b")
+
+        cur.execute("SELECT count(*) FROM dash_osm_buildings")
+        assert cur.fetchone()[0] == 1
+        cur.execute("SELECT source_region, city_code, round(ST_X(ST_Centroid(geom))::numeric, 3) "
+                    "FROM dash_osm_buildings")
+        assert cur.fetchone() == ("chubu", "B", Decimal("0.500"))
 ```
 
-期待する結果: 失敗 0 件です。
+ファイルの先頭に次を足します。
 
-- [ ] **Step 6: コミットする**
+```python
+from decimal import Decimal
+```
+
+- [ ] **Step 6: 試験を全部走らせる**
+
+```bash
+cd ~/git/rapid_plateau_dashboard && DASH_TEST_DATABASE_URL=postgresql:///dash_test python3 -m pytest -q
+```
+
+期待する結果: `9 failed, 18 passed` です。
+この 9 件は、このブランチを切る前の `origin/main` でも同じように失敗する既存の不具合で、
+今回は直しません。
+9 件を超える場合は、その内訳を報告してください。
+
+- [ ] **Step 7: コミットする**
 
 ```bash
 cd ~/git/rapid_plateau_dashboard && git add ingest/load_osm_buildings.py run_batch.sh && git commit -F - <<'MSG'
@@ -338,8 +381,13 @@ MSG
 **Interfaces:**
 - Consumes: Task 2 まででマージ済みのコード
 
-Task 1 と Task 2 を Pull Request としてマージし、サーバ側の作業用ディレクトリを最新にしてから実行します。
+Task 1 と Task 2 を 1 つの Pull Request としてマージし、サーバ側の作業用ディレクトリを最新にしてから実行します。
 日曜 01:00 の定期実行とぶつけないこと、06:00 から 06:35 の間を跨がないことを守ります。
+
+Task 1 だけを先に反映しないでください。
+Task 1 は一意索引を足しますが、読み込みの入り口を新しい関数に繋ぐのは Task 2 です。
+索引だけが先に入った状態で週次バッチが動くと、抽出に同じ建物が 2 度現れたときに
+古い挿入が一意性違反で落ちます。
 
 - [ ] **Step 1: 実行前の値を控える**
 
@@ -375,10 +423,25 @@ WHERE a.osm_type = b.osm_type AND a.osm_id = b.osm_id AND a.id > b.id;
 - [ ] **Step 3: テーブルの定義を適用する**
 
 ```bash
-psql "$DATABASE_URL" -f sql/schema.sql
+psql -v ON_ERROR_STOP=1 "$DATABASE_URL" -f sql/schema.sql
 ```
 
+`ON_ERROR_STOP=1` を必ず付けてください。
+これが無いと、重複があって一意索引の作成に失敗しても、psql は残りを流して終了コード 0 を返します。
+索引が無いまま Step 4 の読み込みを走らせると、そこで初めて
+`there is no unique or exclusion constraint matching the ON CONFLICT specification` で落ちます。
+
+適用後に索引ができていることを確かめます。
+
+```sql
+SELECT indexname FROM pg_indexes WHERE indexname = 'dash_osm_buildings_osm_uidx';
+```
+
+期待する結果: 1 行返ります。
+
 900 万行への一意索引の作成で数分かかります。
+`CONCURRENTLY` を付けていないため、作成中はテーブルへの書き込みができません。
+この時間帯に週次バッチが動いていないことを確かめてから実行してください。
 
 - [ ] **Step 4: 3 地域を取得して読み込む**
 
