@@ -1,9 +1,11 @@
-"""Integration test for load_osm_buildings.decode_select_sql.
+"""Integration tests for load_osm_buildings.decode_select_sql and replace_region_rows.
 
 Verifies the osmium id decode ('a<num>' -> even=way/odd=relation, osm_id=num//2)
 and city_code assignment via the containing admin polygon (N03 boundary_geom
 preferred, plateau_coverage hull as fallback), and that buildings outside every
 admin polygon are dropped.
+Also verifies that a region load replaces only the rows that region produced,
+and that a building appearing in two regions is kept as one row.
 """
 from decimal import Decimal
 

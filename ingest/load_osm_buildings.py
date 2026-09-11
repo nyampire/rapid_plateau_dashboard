@@ -10,8 +10,9 @@ city_code is assigned by which plateau_coverage polygon contains the building's
 representative point (interim until N03 admin boundaries; DESIGN.md §9-1). Buildings
 outside every coverage polygon are dropped.
 Idempotent: a reload replaces the rows this region's extract produced last time,
-identified by source_region. Region extracts overlap at the border, so a building
-that appears in two regions is kept as one row by the (osm_type, osm_id) unique index.
+identified by source_region.
+Region extracts overlap at the border, so a building that appears in two regions
+is kept as one row by the (osm_type, osm_id) unique index.
 
 Usage:
   python3 load_osm_buildings.py buildings.geojsonseq --postgres-url "$DATABASE_URL" --region kanto
