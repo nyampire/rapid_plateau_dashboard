@@ -226,3 +226,65 @@ def test_summary_still_reads_overall_after_region_split(client, db):
 
 def test_health(client):
     assert client.get("/health").json()["status"] == "ok"
+
+
+@pytest.fixture
+def client_done(db, db_url, monkeypatch):
+    monkeypatch.setenv("DASH_DATABASE_URL", db_url)
+    import dashboard_api
+    from fastapi.testclient import TestClient
+
+    rows = [
+        ("11230", "関東", "done", "89.90", True),
+        ("13229", "関東", "not_started", "97.20", True),
+        ("13116", "関東", "in_progress", "90.00", True),
+        ("23100", "中部", "done", None, True),
+        ("13308", "関東", "not_started", "25.20", True),
+        ("13999", "関東", "not_started", "99.00", False),
+    ]
+    with db.cursor() as cur:
+        for code, region, status, rate, has_boundary in rows:
+            boundary = BOUNDARY_SQL if has_boundary else "NULL"
+            cur.execute(
+                "INSERT INTO dash_city_master(city_code,city_name,prefecture,region,in_local_db,osm_import_status,boundary_geom) "
+                f"VALUES (%s,%s,'x',%s,true,%s,{boundary})",
+                (code, "c" + code, region, status),
+            )
+            if rate is not None:
+                cur.execute(
+                    "INSERT INTO dash_city_stats(city_code,plateau_count,osm_count,intersecting_count,import_rate,computed_at) "
+                    "VALUES (%s,100,50,50,%s, now())",
+                    (code, rate),
+                )
+        cur.execute(
+            "INSERT INTO dash_progress_history(computed_at,region,total_plateau,total_intersecting,overall_rate,"
+            "cities_total,cities_in_db,cities_osm_done,cities_done) "
+            "VALUES (now(),'__overall__',100,52,52.0,5,5,2,4)")
+    return TestClient(dashboard_api.app)
+
+
+def test_summary_counts_union_and_threshold(client_done):
+    j = client_done.get("/api/dashboard/summary").json()
+    assert j["cities_osm_done"] == 2      # 11230, 23100
+    assert j["cities_done"] == 4          # + 13229, 13116. 13999 has no boundary
+    assert j["rate_done_threshold"] == 90
+
+
+def test_regions_split_done_and_osm_done(client_done):
+    by = {r["region"]: r for r in client_done.get("/api/dashboard/regions").json()}
+    assert (by["関東"]["cities_osm_done"], by["関東"]["cities_done"]) == (1, 3)
+    assert (by["中部"]["cities_osm_done"], by["中部"]["cities_done"]) == (1, 1)
+
+
+def test_cities_done_source(client_done):
+    by = {c["city_code"]: c["done_source"] for c in client_done.get("/api/dashboard/cities").json()}
+    assert by["11230"] == "wiki"
+    assert by["13229"] == "rate"
+    assert by["13116"] == "rate"
+    assert by["23100"] == "wiki"
+    assert by["13308"] is None
+    assert client_done.get("/api/dashboard/cities/13229").json()["done_source"] == "rate"
+
+
+def test_progress_returns_cities_done(client_done):
+    assert client_done.get("/api/dashboard/progress").json()["cities_done"] == 4
