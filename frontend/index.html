@@ -6,7 +6,7 @@
   <title>Rapid Plateau 進捗ダッシュボード</title>
   <link rel="icon" type="image/svg+xml" href="rapid_favicon.svg">
   <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css">
-  <link rel="stylesheet" href="style.css?v=f548c444">
+  <link rel="stylesheet" href="style.css?v=51d01734">
 </head>
 <body>
   <header class="topbar">
@@ -39,10 +39,10 @@
       <div class="kpi-def">Plateau 公開 306 都市のうち、本ダッシュボードのバックエンドに取り込まれて率を計算できる都市の割合。</div>
     </div>
     <div class="kpi">
-      <div class="kpi-label">OSMインポート完了都市数 (wiki)</div>
+      <div class="kpi-label">OSMインポート完了都市数</div>
       <div class="kpi-value"><span id="kpi-done">—</span></div>
       <div class="formula" id="f-done"></div>
-      <div class="kpi-def">OSM wiki の進捗管理ページで「インポート完了」と記録された都市。</div>
+      <div class="kpi-def">OSM wikiで完了と記載された都市と、取り込み率が<span id="done-th">90</span>%以上の都市の合計です。</div>
     </div>
   </section>
 
@@ -77,15 +77,15 @@
             <td>バックエンド取込済都市数 / Plateau 公開都市数（306）</td>
           </tr>
           <tr>
-            <td>OSMインポート完了都市数（OSM wiki）</td>
-            <td>OSM wiki の <a href="https://wiki.openstreetmap.org/wiki/JA:MLIT_PLATEAU/imports_list" target="_blank" rel="noopener">JA:MLIT_PLATEAU/imports_list</a> で「インポート完了」と記録された都市の数。Plateau データを使ったインポート作業は OSM コミュニティのインポートガイドラインに沿って進められており、このページが進捗管理の正本になっています。</td>
-            <td>wiki 完了記載都市数 / Plateau 公開都市数（306）</td>
+            <td>OSMインポート完了都市数</td>
+            <td>wikiで完了と記載された都市と、取り込み率が90%以上の都市の合計。うちwikiの記載は、OSM wiki の <a href="https://wiki.openstreetmap.org/wiki/JA:MLIT_PLATEAU/imports_list" target="_blank" rel="noopener">JA:MLIT_PLATEAU/imports_list</a> で「インポート完了」と記録された都市の数。Plateau データを使ったインポート作業は OSM コミュニティのインポートガイドラインに沿って進められており、このページが進捗管理の正本になっています。</td>
+            <td>（wikiで完了 または 率≥90%の都市数）/ Plateau公開都市数（306）</td>
           </tr>
           <tr>
-            <td>ほぼ完了（率ベース）</td>
-            <td>建物カバレッジ率が 90% 以上の都市です。OSM wiki への完了登録とは独立に、本ダッシュボードの数値からマッピングがほぼ済んだ可能性が高いと<b>推定</b>できる都市を識別する目安として用います。
+            <td>完了（率）</td>
+            <td>wikiに記載がなくても率が90%以上なら完了に数える。率が90%を割ると外れる。
               <div class="note">※ 率が 100% に達しないのは、(1) Plateau データも作成時点のスナップショットで最新の街並みを反映しきれない、(2) OSM 側で新たに描かれた建物は Plateau 側に含まれない、(3) Plateau と OSM のジオメトリに代表点判定の閾値以下のずれがある、といった要因によります。wiki で完了登録済の都市でも約 90% に収まることから、90% をしきい値に置いています。</div></td>
-            <td>建物カバレッジ率 ≥ 90%</td>
+            <td>建物カバレッジ率 ≥ 90%（wikiで完了の都市を除く）</td>
           </tr>
           <tr>
             <td>「未計測」「Rapid対象外」</td>
@@ -117,8 +117,9 @@
               <option value="measured">計測済</option>
               <option value="in_db">Rapid対象</option>
               <option value="not_in_db">Rapid対象外</option>
-              <option value="done">インポート完了（wiki）</option>
-              <option value="rate_done">ほぼ完了（率≥90%）</option>
+              <option value="done_all">完了（すべて）</option>
+              <option value="done_wiki">完了（wiki）</option>
+              <option value="done_rate">完了（率）</option>
             </select>
             <input id="f-search" type="search" placeholder="🔍 都市名">
           </div>
@@ -133,7 +134,7 @@
                 <th data-sort="import_rate" class="num"><span class="thlabel">建物カバレッジ率<span class="arr"></span></span><div class="sub">OSMに重なる建物 / Plateau建物数</div></th>
                 <th data-sort="intersecting_count" class="num"><span class="thlabel">OSMに重なる建物<span class="arr"></span></span><div class="sub">Plateau建物のうちOSMに重なる数</div></th>
                 <th data-sort="plateau_count" class="num"><span class="thlabel">Plateau建物数<span class="arr"></span></span><div class="sub">Plateau建物の総数</div></th>
-                <th data-sort="osm_import_status"><span class="thlabel">インポート作業<span class="arr"></span></span><div class="sub">OSM wikiの記録</div></th>
+                <th data-sort="import_work"><span class="thlabel">インポート作業<span class="arr"></span></span><div class="sub">OSM wikiの記録と取り込み率</div></th>
               </tr>
             </thead>
             <tbody id="cities-body"></tbody>
@@ -182,7 +183,7 @@
   <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
   <!-- API base: same-origin /api/dashboard by default; override for dev via ?api=<base-url> -->
   <script>window.DASH_API_BASE = new URLSearchParams(location.search).get("api") || "/api/dashboard";</script>
-  <script src="data.js?v=0b9b15e2"></script>
-  <script src="app.js?v=9e3f29af"></script>
+  <script src="data.js?v=1210c26b"></script>
+  <script src="app.js?v=bd487e22"></script>
 </body>
 </html>
