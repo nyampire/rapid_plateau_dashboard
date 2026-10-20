@@ -156,7 +156,7 @@ OSM wiki の 2 ページを参照し、各都市の「公式なインポート�
   - 「**完了**」の定義 = 「進捗管理テーブル（imports_list）に完了日が記載される」時点（公式慣行）。
   - インポート対象タグ: `building` / `height` / `building:levels` / `ele` / `addr:full`（PLATEAU 側優先）。インポート率や交差判定の解釈の裏付けになる。
   - → ダッシュボードの「完了」ステータスは **wiki の完了日**を権威ソースとし、計算上の **インポート率**は定量補助指標として併記する。
-  - **2026-10-20の改定**: 完了の都市数（`cities_done`）は「wikiで完了、またはインポート率が90%以上」の都市を数える。wikiだけの完了数は `cities_osm_done` として残す。都市ごとの出どころは `done_source`（`wiki` / `rate`）で返す。詳細は [設計: 取り込み率が90%以上の都市も完了に数える](superpowers/specs/2026-10-20-done-count-with-rate-design.md)。
+  - **2026-10-20の改定**: 完了の都市数（`cities_done`）は「wikiで完了、またはインポート率が90%以上」の都市を数える。wikiだけの完了数は`cities_osm_done`として残す。都市ごとの出どころは`done_source`（`wiki`/`rate`）で返す。詳細は [設計: 取り込み率が90%以上の都市も完了に数える](superpowers/specs/2026-10-20-done-count-with-rate-design.md)。
 
 > 補足: imports_list の「実施者」列は将来の「作業者一覧」（スコープ外）の軽量ソースになりうる（都市/メッシュ単位）。
 
@@ -316,7 +316,7 @@ Phase 6: （任意）ダッシュ用 MatView リフレッシュ
 
 ### 残課題（レビュー/実装で詰める）
 1. ~~**対応エリアジオメトリ（行政界）**~~ ✅ **実装済** (2026-05-28, #5): 国土数値情報「行政区域データ（N03-2025, CC BY 4.0）」を採用。`N03_007`（5桁の全国地方公共団体コード）で city_code に直接 join できるのが OSM 行政界に対する決め手（OSM 側はコードが不確実で名称突合が再発するため不採用）。政令市は N03 が区コード（横浜 141xx）で持つため、`N03_005`（区名）が立つ行を `(都道府県, 市区町村名)` で master に join して親コード（14100）へ集約・dissolve。`ingest/load_n03_boundaries.py` が `dash_city_master.boundary_geom` に投入。`load_osm_buildings.py` の city_code 付与と `dashboard_api.py` の地図配信は boundary_geom 優先・coverage 凸包フォールバック。304/306 都市に行政界（残 2 は 竹芝/万博 の特殊データセットで N03 に対応無し→ coverage 継続）。N03 は年次更新なので週次バッチ外の任意実行。
-2. ~~**「完了」判定**~~ ✅ **決定済** (2026-10-20): wiki未記載でも率が90%以上の都市は完了に数え、ラベルは `完了（wiki）` と `完了（率）` に分けて表示する。詳細は [設計: 取り込み率が90%以上の都市も完了に数える](superpowers/specs/2026-10-20-done-count-with-rate-design.md)。
+2. ~~**「完了」判定**~~ ✅ **決定済** (2026-10-20): wiki未記載でも率が90%以上の都市は完了に数え、ラベルは`完了（wiki）`と`完了（率）`に分けて表示する。詳細は [設計: 取り込み率が90%以上の都市も完了に数える](superpowers/specs/2026-10-20-done-count-with-rate-design.md)。
 3. **wiki name→city_code マッピング**: imports_list は名称ベース。マスタ名称との表記揺れ（市/区/町村、旧字体）への対処。メッシュコード経由の空間引きを補助に。
 4. **extract の単位と更新**: 差分更新（osmupdate）は将来。処理単位は **Geofabrik の地域別 region（全国 8 本）で確定** — PoC 本番機実測(§11)で、最大 region(Kanto)でも export→grep なら MemAvailable 482MB を維持し安全に処理できたため、県別への細分化は不要。`japan-latest` 1 本でも export 自体は回る可能性が高いが、region 別の方が再実行・並列・障害分離に有利。
 5. **part 充足の別指標**: outline 率で確定済み。part 単位の充足を見たい需要があれば別指標として追加。
