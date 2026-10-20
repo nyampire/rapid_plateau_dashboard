@@ -77,6 +77,8 @@ CREATE TABLE IF NOT EXISTS dash_progress_history (
   cities_osm_done    INTEGER,        -- wiki-'done' cities
   PRIMARY KEY (computed_at, region)
 );
+-- Wiki-'done' OR import_rate >= 90 cities. NULL for rows written before 2026-10.
+ALTER TABLE dash_progress_history ADD COLUMN IF NOT EXISTS cities_done INTEGER;
 -- Migration: rows created before issue #14 had only (computed_at) as PK and no
 -- region column. ADD COLUMN IF NOT EXISTS fills them with '__overall__' (DEFAULT),
 -- then swap the single-column PK out for the composite one.

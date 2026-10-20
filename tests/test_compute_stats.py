@@ -155,6 +155,34 @@ def test_progress_history_insert_emits_per_region_and_overall(db):
     assert rows["__overall__"] == (700, 490, 70.00, 3, 3, 2)
 
 
+def test_progress_history_cities_done_is_union_of_wiki_and_rate(db):
+    with db.cursor() as cur:
+        cur.executemany(
+            "INSERT INTO dash_city_master(city_code,city_name,region,in_local_db,osm_import_status,boundary_geom) "
+            f"VALUES (%s,%s,%s,%s,%s,{BOUNDARY_SQL})",
+            [("13104", "新宿区", "関東", True, "done"),
+             ("13115", "杉並区", "関東", True, "not_started"),
+             ("13116", "豊島区", "関東", True, "in_progress"),
+             ("23100", "名古屋市", "中部", True, "done")],
+        )
+        cur.executemany(
+            "INSERT INTO dash_city_stats(city_code,plateau_count,osm_count,intersecting_count,import_rate,computed_at) "
+            "VALUES (%s,%s,%s,%s,%s, now())",
+            [("13104", 100, 200, 80, 80.00),
+             ("13115", 100, 200, 90, 90.00),
+             ("13116", 100, 200, 90, 89.99)],
+        )
+
+        cur.execute(compute_stats.PROGRESS_HISTORY_INSERT_SQL)
+
+        cur.execute("SELECT region, cities_osm_done, cities_done FROM dash_progress_history ORDER BY region")
+        rows = {r[0]: r[1:] for r in cur.fetchall()}
+
+    assert rows["関東"] == (1, 2)        # 13104(wiki) + 13115(90.00); 13116(89.99) is out
+    assert rows["中部"] == (1, 1)        # wiki-done counts even without a rate
+    assert rows["__overall__"] == (2, 3)
+
+
 # Issue #17 edge cases: untouched-but-mastered cities, all-zero rate, NULL region.
 # Each test is independent (db fixture truncates between runs).
 
