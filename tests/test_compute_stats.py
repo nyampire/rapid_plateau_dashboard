@@ -170,7 +170,8 @@ def test_progress_history_cities_done_is_union_of_wiki_and_rate(db):
             "VALUES (%s,%s,%s,%s,%s, now())",
             [("13104", 100, 200, 80, 80.00),
              ("13115", 100, 200, 90, 90.00),
-             ("13116", 100, 200, 90, 89.99)],
+             ("13116", 100, 200, 90, 89.99),
+             ("23100", 100, 200, 95, 95.00)],
         )
 
         cur.execute(compute_stats.PROGRESS_HISTORY_INSERT_SQL)
@@ -179,7 +180,7 @@ def test_progress_history_cities_done_is_union_of_wiki_and_rate(db):
         rows = {r[0]: r[1:] for r in cur.fetchall()}
 
     assert rows["関東"] == (1, 2)        # 13104(wiki) + 13115(90.00); 13116(89.99) is out
-    assert rows["中部"] == (1, 1)        # wiki-done counts even without a rate
+    assert rows["中部"] == (1, 1)        # wiki-done and rate>=90 both hold: counted once
     assert rows["__overall__"] == (2, 3)
 
 

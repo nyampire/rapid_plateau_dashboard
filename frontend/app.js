@@ -37,7 +37,7 @@ function renderDashboard(D) {
   // done = wiki-done OR rate >= threshold (counted once); the threshold comes from the API
   $("#kpi-done").innerHTML = `${s.cities_done} / ${s.cities_total}<span class="unit">都市</span>`;
   $("#f-done").innerHTML = `<span class="ratelabel">割合</span> ${pct(s.cities_done, s.cities_total)}` +
-    `<span class="fnote">うちwikiに完了と記載 ${s.cities_osm_done} 都市</span>`;
+    `<span class="fnote">うちwikiに完了と記載${s.cities_osm_done}都市</span>`;
   if (s.rate_done_threshold != null) $("#done-th").textContent = s.rate_done_threshold;
   function pct(a, b) { return b ? (100 * a / b).toFixed(0) + "%" : "—"; }
 
