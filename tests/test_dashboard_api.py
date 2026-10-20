@@ -1,6 +1,8 @@
 """Integration test for the read-only dashboard API endpoints (FastAPI TestClient)."""
 import pytest
 
+from conftest import BOUNDARY_SQL
+
 
 @pytest.fixture
 def client(db, db_url, monkeypatch):
@@ -10,9 +12,9 @@ def client(db, db_url, monkeypatch):
 
     with db.cursor() as cur:
         cur.execute(
-            "INSERT INTO dash_city_master(city_code,city_name,prefecture,region,in_local_db,osm_import_status,repr_point) VALUES "
-            "('11230','新座市','埼玉県','関東',true,'done', ST_SetSRID(ST_MakePoint(139.565432,35.793210),4326)),"
-            "('13308','奥多摩町','東京都','関東',true,'not_started', NULL)")
+            "INSERT INTO dash_city_master(city_code,city_name,prefecture,region,in_local_db,osm_import_status,repr_point,boundary_geom) VALUES "
+            "('11230','新座市','埼玉県','関東',true,'done', ST_SetSRID(ST_MakePoint(139.565432,35.793210),4326), " + BOUNDARY_SQL + "),"
+            "('13308','奥多摩町','東京都','関東',true,'not_started', NULL, " + BOUNDARY_SQL + ")")
         cur.execute(
             "INSERT INTO dash_city_stats(city_code,plateau_count,osm_count,intersecting_count,import_rate,computed_at) "
             "VALUES ('11230',58804,52864,52864,89.90, now())")
@@ -145,8 +147,8 @@ def test_regions_prev_rate_is_scoped_per_region(client, db):
         # /regions only emits rows whose region appears in dash_city_master, so
         # add a 中部 city alongside the fixture's 関東 cities.
         cur.execute(
-            "INSERT INTO dash_city_master(city_code,city_name,prefecture,region,in_local_db,osm_import_status) "
-            "VALUES ('23100','名古屋市','愛知県','中部',true,'done')")
+            "INSERT INTO dash_city_master(city_code,city_name,prefecture,region,in_local_db,osm_import_status,boundary_geom) "
+            "VALUES ('23100','名古屋市','愛知県','中部',true,'done', " + BOUNDARY_SQL + ")")
         cur.execute("TRUNCATE dash_progress_history;")
         cur.execute(
             """

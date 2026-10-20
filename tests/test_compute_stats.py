@@ -5,6 +5,7 @@ counts as present when its representative point is inside an OSM building OR the
 area overlap exceeds 30%.
 """
 import compute_stats
+from conftest import BOUNDARY_SQL
 
 CITY = "99999"
 
@@ -58,7 +59,8 @@ WARD = "88801"
 
 
 def _ward_setup(cur):
-    cur.execute("INSERT INTO dash_city_master(city_code, city_name) VALUES (%s, '親市')", (PARENT,))
+    cur.execute("INSERT INTO dash_city_master(city_code, city_name, boundary_geom) "
+        f"VALUES (%s, '親市', {BOUNDARY_SQL})", (PARENT,))
     # Ward boundary: 0..0.01 in x and y. Buildings outside this box belong to the
     # parent city but to a different ward (not under test).
     wkt = ("MULTIPOLYGON((("
@@ -118,8 +120,8 @@ def test_progress_history_insert_emits_per_region_and_overall(db):
     with db.cursor() as cur:
         # 2 cities in 関東, 1 city in 中部. Each has a dash_city_stats row.
         cur.executemany(
-            "INSERT INTO dash_city_master(city_code,city_name,region,in_local_db,osm_import_status) "
-            "VALUES (%s,%s,%s,%s,%s)",
+            "INSERT INTO dash_city_master(city_code,city_name,region,in_local_db,osm_import_status,boundary_geom) "
+            f"VALUES (%s,%s,%s,%s,%s,{BOUNDARY_SQL})",
             [("13104", "新宿区", "関東", True,  "done"),
              ("13115", "杉並区", "関東", True,  "not_started"),
              ("23100", "名古屋市", "中部", True, "done")],
@@ -165,8 +167,8 @@ def test_progress_history_unmeasured_and_not_in_db_counted_in_total_only(db):
     """
     with db.cursor() as cur:
         cur.executemany(
-            "INSERT INTO dash_city_master(city_code,city_name,region,in_local_db,osm_import_status) "
-            "VALUES (%s,%s,%s,%s,%s)",
+            "INSERT INTO dash_city_master(city_code,city_name,region,in_local_db,osm_import_status,boundary_geom) "
+            f"VALUES (%s,%s,%s,%s,%s,{BOUNDARY_SQL})",
             # 関東 region:
             #   A measured + in_local_db
             #   B in_local_db but no dash_city_stats row yet (未計測)
@@ -205,8 +207,8 @@ def test_progress_history_zero_plateau_yields_null_rate(db):
     """
     with db.cursor() as cur:
         cur.executemany(
-            "INSERT INTO dash_city_master(city_code,city_name,region,in_local_db,osm_import_status) "
-            "VALUES (%s,%s,%s,%s,%s)",
+            "INSERT INTO dash_city_master(city_code,city_name,region,in_local_db,osm_import_status,boundary_geom) "
+            f"VALUES (%s,%s,%s,%s,%s,{BOUNDARY_SQL})",
             # 北海道 region: 1 city with all-zero stats, 1 city without any stats.
             [("01100", "札幌市", "北海道", True,  "not_started"),
              ("01202", "函館市", "北海道", True,  "not_started")],
@@ -242,8 +244,8 @@ def test_progress_history_null_region_falls_under_unknown(db):
     """
     with db.cursor() as cur:
         cur.executemany(
-            "INSERT INTO dash_city_master(city_code,city_name,region,in_local_db,osm_import_status) "
-            "VALUES (%s,%s,%s,%s,%s)",
+            "INSERT INTO dash_city_master(city_code,city_name,region,in_local_db,osm_import_status,boundary_geom) "
+            f"VALUES (%s,%s,%s,%s,%s,{BOUNDARY_SQL})",
             [("99001", "謎市", None,  True, "not_started"),
              ("13104", "新宿区", "関東", True, "done")],
         )
