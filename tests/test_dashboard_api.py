@@ -239,6 +239,7 @@ def client_done(db, db_url, monkeypatch):
         ("13229", "関東", "not_started", "97.20", True),
         ("13116", "関東", "in_progress", "90.00", True),
         ("23100", "中部", "done", None, True),
+        ("13101", "関東", "done", "95.00", True),
         ("13308", "関東", "not_started", "25.20", True),
         ("13999", "関東", "not_started", "99.00", False),
     ]
@@ -265,14 +266,14 @@ def client_done(db, db_url, monkeypatch):
 
 def test_summary_counts_union_and_threshold(client_done):
     j = client_done.get("/api/dashboard/summary").json()
-    assert j["cities_osm_done"] == 2      # 11230, 23100
-    assert j["cities_done"] == 4          # + 13229, 13116. 13999 has no boundary
+    assert j["cities_osm_done"] == 3      # 11230, 23100, 13101
+    assert j["cities_done"] == 5          # + 13229, 13116. 13101 (wiki and rate) counts once. 13999 has no boundary
     assert j["rate_done_threshold"] == 90
 
 
 def test_regions_split_done_and_osm_done(client_done):
     by = {r["region"]: r for r in client_done.get("/api/dashboard/regions").json()}
-    assert (by["関東"]["cities_osm_done"], by["関東"]["cities_done"]) == (1, 3)
+    assert (by["関東"]["cities_osm_done"], by["関東"]["cities_done"]) == (2, 4)
     assert (by["中部"]["cities_osm_done"], by["中部"]["cities_done"]) == (1, 1)
 
 
@@ -282,6 +283,7 @@ def test_cities_done_source(client_done):
     assert by["13229"] == "rate"
     assert by["13116"] == "rate"
     assert by["23100"] == "wiki"
+    assert by["13101"] == "wiki"          # wiki and rate both qualify: wiki wins
     assert by["13308"] is None
     assert client_done.get("/api/dashboard/cities/13229").json()["done_source"] == "rate"
 
