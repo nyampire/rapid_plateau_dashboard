@@ -21,7 +21,7 @@ DESIGN.md §7（フロントエンド）を、**建物カバレッジ率を主�
 - **建物カバレッジ率の分母**: 自前 DB 取込済（in_local_db）都市の PLATEAU 建物（outline のみ、building_part 除外）。
   - 取込済だが OSM 未計測の都市は「未計測」として分子・分母から除外（率を歪めない）。計測済み都市での率として明示する。
   - **将来拡張**: 全国 306 都市の総棟数は attributedata の棟数列（例「3施設 9棟」）から取得でき、「全国建物総数に対する真のカバレッジ」に拡張可能。初期は計測済み都市ベースで表示し、注記する。
-- **補助 KPI（都市加重）**: 都市カバレッジ = 取込済 / 306、wiki 完了 = done / 306。母集団 306 は全国 PLATEAU 提供都市。
+- **補助 KPI（都市加重）**: 都市カバレッジ = 取込済 / 306、完了 = cities_done / 306。母集団 306 は全国 PLATEAU 提供都市。
 
 ---
 
@@ -84,7 +84,7 @@ DESIGN.md §7（フロントエンド）を、**建物カバレッジ率を主�
 |---|---|---|---|
 | A | ヒーロー: 建物カバレッジ率 | 大きな % + 前回比(▲▼) + 計測済都市数注記 | `/summary`: dash_progress_history 最新 `overall_rate`, 前回行との差分 |
 | B | 補助KPI: 都市カバレッジ | `cities_in_db / cities_total` と % | `/summary`: `cities_in_db`, `cities_total` |
-| C | 補助KPI: OSM完了 | `cities_osm_done / cities_total` と % | `/summary`: `cities_osm_done`, `cities_total` |
+| C | 補助KPI: 完了 | `cities_done / cities_total` と %（wiki で完了、または率90%以上。定義は[設計](superpowers/specs/2026-10-20-done-count-with-rate-design.md)） | `/summary`: `cities_done`, `cities_total` |
 | D | トレンド スパークライン | overall_rate の週次推移 | `/summary`: dash_progress_history 時系列 |
 | E | 地方別サマリカード(8) | 地方名・建物率(色)・取込/全都市数 | `/regions`: dash_city_stats JOIN dash_city_master を region で集計 |
 | F | 市区町村一覧 | 都市/地方/建物率バー/PLATEAU棟数/OSM数/wiki状態/LOD | `/cities`: dash_city_master + dash_city_stats |
@@ -129,8 +129,8 @@ wiki 状態バッジ: `完了`（+`✓検証`）/ `作業中` / `未着手`。
 
 | エンドポイント | 返却 | 備考 |
 |---|---|---|
-| `GET /api/dashboard/summary` | 建物カバレッジ率(最新+前回比)、cities_total/in_db/osm_done、トレンド系列 | dash_progress_history |
-| `GET /api/dashboard/regions` | 地方別: building-weighted 率、取込/全都市数、done 数 | dash_city_stats ⨝ dash_city_master を region 集計（オンザフライ可、144行で軽量。新テーブル不要）|
+| `GET /api/dashboard/summary` | 建物カバレッジ率(最新+前回比)、cities_total/in_db/done/osm_done、トレンド系列 | dash_progress_history |
+| `GET /api/dashboard/regions` | 地方別: building-weighted 率、取込/全都市数、`cities_done` と `cities_osm_done` | dash_city_stats ⨝ dash_city_master を region 集計（オンザフライ可、144行で軽量。新テーブル不要）|
 | `GET /api/dashboard/cities` | 全 306 都市: master 全項目 + stats(率/棟数) + 状態 | フィルタ(地方/状態) クエリ対応 |
 | `GET /api/dashboard/cities/{code}` | 単一都市詳細 | |
 | `GET /api/dashboard/cities.geojson` | coverage ポリゴン + import_rate（144都市） | 補助地図用 |
@@ -151,6 +151,6 @@ wiki 状態バッジ: `完了`（+`✓検証`）/ `作業中` / `未着手`。
 ## 8. 未確定・レビュー論点
 
 1. 建物カバレッジ率の**分母スコープ**（計測済都市ベース / 全国総棟数ベース）の最終確定（§1）。
-2. 「カバレッジ率」と「OSM完了(wiki)」の関係表示（率は高いが wiki 未完了、の都市のラベル方針。DESIGN.md §9-2）。
+2. ~~「カバレッジ率」と「OSM完了(wiki)」の関係表示~~ ✅ 決定済 (2026-10-20): 率90%以上は `完了（率）`、wiki の完了は `完了（wiki）` と表示する。[設計](superpowers/specs/2026-10-20-done-count-with-rate-design.md)、DESIGN.md §9-2。
 3. 未取込都市の一覧での既定表示（隠す/薄く出す/フィルタ既定）。
 4. トレンドの粒度（週次のみ / 月次集約も）。
