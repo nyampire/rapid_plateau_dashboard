@@ -15,11 +15,6 @@ function renderDashboard(D) {
   // escape DB/API-derived strings before innerHTML interpolation (defense-in-depth)
   const esc = (v) => String(v == null ? "" : v).replace(/[&<>"']/g,
     (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
-  // coverage-based completion (decision in #6/#8): rate >= threshold ⇒ "ほぼ完了（率）",
-  // shown alongside the authoritative OSM-wiki "完了" status.
-  const RATE_DONE = 90;
-  const isRateDone = (c) => c.import_rate != null && c.import_rate >= RATE_DONE;
-
   // ---------- KPIs ----------
   const s = D.summary;
   $("#updated").textContent = s.computed_at || "—";
@@ -39,11 +34,11 @@ function renderDashboard(D) {
   }
   $("#kpi-cities").innerHTML = `${s.cities_in_db} / ${s.cities_total}<span class="unit">都市</span>`;
   $("#f-cities").innerHTML = `<span class="ratelabel">割合</span> ${pct(s.cities_in_db, s.cities_total)}<span class="fnote">バックエンド取込済都市数 / Plateau 公開都市数</span>`;
-  $("#kpi-done").innerHTML = `${s.cities_osm_done} / ${s.cities_total}<span class="unit">都市</span>`;
-  const rateDoneCount = D.cities.filter(isRateDone).length;
-  $("#f-done").innerHTML = `<span class="ratelabel">割合</span> ${pct(s.cities_osm_done, s.cities_total)}` +
-    `<span class="fnote">wiki 完了記載都市数 / Plateau 公開都市数</span>` +
-    `<span class="fnote">＋ ほぼ完了（率≥${RATE_DONE}%）: ${rateDoneCount} 都市</span>`;
+  // done = wiki-done OR rate >= threshold (counted once); the threshold comes from the API
+  $("#kpi-done").innerHTML = `${s.cities_done} / ${s.cities_total}<span class="unit">都市</span>`;
+  $("#f-done").innerHTML = `<span class="ratelabel">割合</span> ${pct(s.cities_done, s.cities_total)}` +
+    `<span class="fnote">うちwikiに完了と記載${s.cities_osm_done}都市</span>`;
+  if (s.rate_done_threshold != null) $("#done-th").textContent = s.rate_done_threshold;
   function pct(a, b) { return b ? (100 * a / b).toFixed(0) + "%" : "—"; }
 
   // ---------- region order ----------
@@ -103,8 +98,9 @@ function renderDashboard(D) {
   const body = $("#cities-body");
 
   function statusBadge(c) {
-    if (c.osm_import_status === "done")
-      return `<span class="badge done">完了</span>${c.osm_validated ? '<span class="chk">✓検証</span>' : ""}`;
+    if (c.done_source === "wiki")
+      return `<span class="badge done">完了（wiki）</span>${c.osm_validated ? '<span class="chk">✓検証</span>' : ""}`;
+    if (c.done_source === "rate") return `<span class="badge done">完了（率）</span>`;
     if (c.osm_import_status === "in_progress") return `<span class="badge prog">作業中</span>`;
     return `<span class="badge none">未着手</span>`;
   }
@@ -113,12 +109,19 @@ function renderDashboard(D) {
       const col = rateColor(c.import_rate);
       return `<div class="ratecell"><div class="bar"><i style="width:${c.import_rate}%;background:${col}"></i></div>` +
         `<span class="pct">${c.import_rate}%</span>` +
-        (isRateDone(c) ? `<span class="badge ratedone" title="建物カバレッジ率 ≥ ${RATE_DONE}%。OSM wiki への完了登録とは独立の、本ダッシュボードによる推定。">ほぼ完了</span>` : "") +
         `</div>`;
     }
     return c.in_local_db
       ? `<span class="na" title="Plateau データはバックエンドに取り込み済み。次回の集計更新で OSM 建物との重なり判定を実行予定。">未計測</span>`
       : `<span class="na" title="Plateau データは公開されているが、本ダッシュボードのバックエンドに未取込みのため重なり率を算出できない都市。">Rapid対象外</span>`;
+  }
+
+  // "インポート作業" column sorts by status rank: 完了（wiki）, 完了（率）, 作業中, 未着手
+  function sortValue(c, k) {
+    if (k !== "import_work") return c[k];
+    if (c.done_source === "wiki") return 0;
+    if (c.done_source === "rate") return 1;
+    return c.osm_import_status === "in_progress" ? 2 : 3;
   }
 
   function passFilter(c) {
@@ -127,8 +130,9 @@ function renderDashboard(D) {
     if (st === "measured" && c.import_rate == null) return false;
     if (st === "in_db" && !c.in_local_db) return false;
     if (st === "not_in_db" && c.in_local_db) return false;
-    if (st === "done" && c.osm_import_status !== "done") return false;
-    if (st === "rate_done" && !isRateDone(c)) return false;
+    if (st === "done_all" && c.done_source == null) return false;
+    if (st === "done_wiki" && c.done_source !== "wiki") return false;
+    if (st === "done_rate" && c.done_source !== "rate") return false;
     const q = $("#f-search").value.trim();
     if (q && !(c.city_name || "").includes(q) && !(c.prefecture || "").includes(q)) return false;
     return true;
@@ -136,7 +140,7 @@ function renderDashboard(D) {
 
   function renderTable() {
     const rows = D.cities.filter(passFilter).sort((a, b) => {
-      let va = a[sortKey], vb = b[sortKey];
+      let va = sortValue(a, sortKey), vb = sortValue(b, sortKey);
       if (va == null) return 1; if (vb == null) return -1;
       if (typeof va === "string") return sortDir * va.localeCompare(vb, "ja");
       return sortDir * (va - vb);
@@ -215,7 +219,7 @@ function renderDashboard(D) {
     const c = byCode[code]; if (!c) return;
     const col = rateColor(c.import_rate) || getCss("--muted");
     const rateLine = c.import_rate != null
-      ? `<div class="d-rate" style="color:${col}">${c.import_rate}%${isRateDone(c) ? ' <span class="badge ratedone">ほぼ完了</span>' : ''}</div>
+      ? `<div class="d-rate" style="color:${col}">${c.import_rate}%</div>
          <div class="d-row"><span class="k">OSMに重なる建物 / Plateau建物数</span><span>${fmt(c.intersecting_count)} / ${fmt(c.plateau_count)}</span></div>`
       : `<div class="d-rate na">${c.in_local_db ? "未計測" : "Rapid対象外"}</div>`;
     const wards = wardsByCity[code] || [];
@@ -254,7 +258,7 @@ function renderDashboard(D) {
       <div class="d-row"><span class="k" title="OSMがその都市範囲に持つ建物の全数。このうち Plateau と重なる数が上段の「OSMに重なる建物」">OSM建物総数</span><span>${fmt(c.osm_count)}</span></div>
       <div class="d-row"><span class="k">建築物LOD / Plateau 仕様版</span><span>${esc(c.building_lods || "—")} / ${esc(c.spec_versions || "—")}</span></div>
       <div class="d-row"><span class="k">Rapid Plateau 作業対象</span><span>${c.in_local_db ? "Rapid対象" : "Rapid対象外"}</span></div>
-      <div class="d-row"><span class="k">OSMインポート(wiki)</span><span>${statusBadge(c)} ${c.osm_import_date || ""}</span></div>
+      <div class="d-row"><span class="k">インポート作業</span><span>${statusBadge(c)} ${c.done_source === "wiki" ? (c.osm_import_date || "") : ""}</span></div>
       <div class="d-links">
         <a href="${osmUrl(c)}" target="_blank">OSMで開く</a>
         <a href="${rapidUrl(c)}" target="_blank">Rapidで開く</a>
