@@ -351,7 +351,7 @@ git commit -m "feat(frontend): 完了の数に率90%以上の都市を含め、�
 
 - [ ] **Step 2: 全体のテストを走らせる**
 
-Run: `DASH_TEST_DATABASE_URL=postgresql:///dash_test pytest -v` と `pytest -v`（DBなし）と `python3 frontend/stamp_cache.py --check`
+Run: `DASH_TEST_DATABASE_URL=postgresql:///dash_test pytest -v`と`pytest -v`（DBなし）と`python3 frontend/stamp_cache.py --check`
 Expected: DBありはすべて成功、DBなしはDBのテストがskipされてほかは成功、`--check`は成功。
 
 - [ ] **Step 3: 機微情報を確かめる**
