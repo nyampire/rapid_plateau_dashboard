@@ -19,6 +19,10 @@ sys.path.insert(0, str(ROOT / "api"))
 
 TEST_DB_URL = os.environ.get("DASH_TEST_DATABASE_URL")
 
+# SQL expression for dash_city_master.boundary_geom in fixtures. Cities are counted
+# only when boundary_geom IS NOT NULL (rapid_plateau_dashboard#27).
+BOUNDARY_SQL = "ST_Multi(ST_MakeEnvelope(139, 35, 139.1, 35.1, 4326))"
+
 # Minimal stand-ins for the plateau_* tables (the real ones live in rapid_plateau_api).
 # Only the columns the dashboard queries read.
 _PLATEAU_FIXTURE_DDL = """

@@ -12,47 +12,59 @@ import json
 
 import psycopg2
 
-SUMMARY = """
+# Copy of api/dashboard_api.py RATE_DONE_THRESHOLD (keep equal).
+RATE_DONE_THRESHOLD = 90
+
+SUMMARY = f"""
 SELECT json_build_object(
   'overall_rate', h.overall_rate,
   'total_plateau', h.total_plateau,
   'total_intersecting', h.total_intersecting,
-  'cities_total', (SELECT count(*) FROM dash_city_master),
-  'cities_in_db', (SELECT count(*) FROM dash_city_master WHERE in_local_db),
-  'cities_osm_done', (SELECT count(*) FROM dash_city_master WHERE osm_import_status='done'),
+  'cities_total', (SELECT count(*) FROM dash_city_master WHERE boundary_geom IS NOT NULL),
+  'cities_in_db', (SELECT count(*) FROM dash_city_master WHERE boundary_geom IS NOT NULL AND in_local_db),
+  'cities_osm_done', (SELECT count(*) FROM dash_city_master WHERE boundary_geom IS NOT NULL AND osm_import_status='done'),
+  'cities_done', (SELECT count(*) FROM dash_city_master m LEFT JOIN dash_city_stats s ON s.city_code = m.city_code
+                  WHERE m.boundary_geom IS NOT NULL
+                    AND (m.osm_import_status='done' OR s.import_rate >= {RATE_DONE_THRESHOLD})),
+  'rate_done_threshold', {RATE_DONE_THRESHOLD},
   'cities_measured', (SELECT count(*) FROM dash_city_stats),
   'computed_at', to_char(h.computed_at, 'YYYY-MM-DD')
 )
-FROM dash_progress_history h ORDER BY h.computed_at DESC LIMIT 1;
+FROM dash_progress_history h WHERE h.region='__overall__' ORDER BY h.computed_at DESC LIMIT 1;
 """
 
-REGIONS = """
+REGIONS = f"""
 SELECT COALESCE(json_agg(r), '[]'::json) FROM (
   SELECT m.region,
     count(*) AS cities_total,
     count(*) FILTER (WHERE m.in_local_db) AS cities_in_db,
-    count(*) FILTER (WHERE m.osm_import_status='done') AS cities_done,
+    count(*) FILTER (WHERE m.osm_import_status='done') AS cities_osm_done,
+    count(*) FILTER (WHERE m.osm_import_status='done' OR s.import_rate >= {RATE_DONE_THRESHOLD}) AS cities_done,
     count(s.city_code) AS cities_measured,
     sum(s.plateau_count) AS plateau,
     sum(s.intersecting_count) AS intersecting,
     round(100.0*sum(s.intersecting_count)/NULLIF(sum(s.plateau_count),0), 1) AS rate
   FROM dash_city_master m
   LEFT JOIN dash_city_stats s ON s.city_code = m.city_code
+  WHERE m.boundary_geom IS NOT NULL
   GROUP BY m.region
   ORDER BY MIN(m.city_code)
 ) r;
 """
 
-CITIES = """
+CITIES = f"""
 SELECT COALESCE(json_agg(c), '[]'::json) FROM (
   SELECT m.city_code, m.city_name, m.prefecture, m.region, m.building_lods, m.spec_versions,
     m.in_local_db, m.osm_import_status,
     to_char(m.osm_import_date,'YYYY-MM-DD') AS osm_import_date, m.osm_validated,
     round(ST_Y(m.repr_point)::numeric, 6) AS repr_lat,
     round(ST_X(m.repr_point)::numeric, 6) AS repr_lon,
-    s.plateau_count, s.osm_count, s.intersecting_count, s.import_rate
+    s.plateau_count, s.osm_count, s.intersecting_count, s.import_rate,
+    CASE WHEN m.osm_import_status='done' THEN 'wiki'
+         WHEN s.import_rate >= {RATE_DONE_THRESHOLD} THEN 'rate' END AS done_source
   FROM dash_city_master m
   LEFT JOIN dash_city_stats s ON s.city_code = m.city_code
+  WHERE m.boundary_geom IS NOT NULL
   ORDER BY s.import_rate DESC NULLS LAST, m.in_local_db DESC, m.city_code
 ) c;
 """
