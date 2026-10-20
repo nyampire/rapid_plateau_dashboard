@@ -31,6 +31,10 @@ import psycopg2
 
 LOCK_KEY = "dash_compute_stats"
 
+# A city counts as "done" if the OSM wiki says so OR its import_rate reaches
+# this percentage (design spec 2026-10-20-done-count-with-rate).
+RATE_DONE_THRESHOLD = 90
+
 STATS_SQL = """
 WITH p AS (
   SELECT geom, ST_PointOnSurface(geom) AS pt
@@ -97,13 +101,13 @@ WHERE w.ward_code = %(ward)s
 # grand-total row. GROUPING SETS gives us both in a single INSERT; GROUPING()
 # flags the grand total so a city with NULL region (shouldn't happen, but
 # defensive) doesn't collide with the sentinel.
-PROGRESS_HISTORY_INSERT_SQL = """
+PROGRESS_HISTORY_INSERT_SQL = f"""
 INSERT INTO dash_progress_history
   (computed_at, region, total_plateau, total_intersecting, overall_rate,
-   cities_total, cities_in_db, cities_osm_done)
+   cities_total, cities_in_db, cities_osm_done, cities_done)
 WITH cb AS (
   SELECT m.region, m.in_local_db, m.osm_import_status,
-         s.plateau_count, s.intersecting_count
+         s.plateau_count, s.intersecting_count, s.import_rate
   FROM dash_city_master m
   LEFT JOIN dash_city_stats s ON s.city_code = m.city_code
   WHERE m.boundary_geom IS NOT NULL
@@ -118,7 +122,9 @@ SELECT
         / NULLIF(sum(cb.plateau_count), 0), 2),
   count(*),
   count(*) FILTER (WHERE cb.in_local_db),
-  count(*) FILTER (WHERE cb.osm_import_status = 'done')
+  count(*) FILTER (WHERE cb.osm_import_status = 'done'),
+  count(*) FILTER (WHERE cb.osm_import_status = 'done'
+                   OR cb.import_rate >= {RATE_DONE_THRESHOLD})
 FROM cb
 GROUP BY GROUPING SETS ((cb.region), ());
 """
@@ -302,16 +308,16 @@ def main():
                 conn.commit()
                 cur.execute("""
                     SELECT region, total_plateau, total_intersecting, overall_rate,
-                           cities_total, cities_in_db, cities_osm_done
+                           cities_total, cities_in_db, cities_osm_done, cities_done
                     FROM dash_progress_history
                     WHERE computed_at = (SELECT max(computed_at) FROM dash_progress_history)
                     ORDER BY region = '__overall__' DESC, region;
                 """)
                 rows = cur.fetchall()
-                for region, tp, ti, orr, ct, cdb, cod in rows:
+                for region, tp, ti, orr, ct, cdb, cod, cd in rows:
                     label = "全国" if region == '__overall__' else region
                     print(f"progress[{label}]: rate={orr}% ({ti}/{tp}); "
-                          f"cities total={ct} in_db={cdb} osm_done={cod}")
+                          f"cities total={ct} in_db={cdb} osm_done={cod} done={cd}")
 
             cur.execute("SELECT pg_advisory_unlock(hashtext(%s));", (LOCK_KEY,))
     finally:
