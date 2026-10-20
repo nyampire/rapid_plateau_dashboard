@@ -25,6 +25,10 @@ from fastapi.responses import JSONResponse
 
 router = APIRouter(prefix="/api/dashboard")
 
+# Copy of ingest/compute_stats.py RATE_DONE_THRESHOLD. This file is deployed alone,
+# so it cannot import compute_stats; tests/test_rate_done_threshold.py keeps them equal.
+RATE_DONE_THRESHOLD = 90
+
 
 def _db_url():
     # Prefer a dedicated read-only role; fall back to the shared DATABASE_URL.
