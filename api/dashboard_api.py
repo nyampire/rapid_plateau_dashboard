@@ -60,7 +60,7 @@ def fetch_one_json(sql, params=None):
 # inflated every "of N cities" denominator by two. boundary_geom IS NOT NULL is
 # the test rather than a code list: the Rapid API already skips the same rows on
 # that basis, and a future special dataset is covered without a code change.
-SUMMARY_SQL = """
+SUMMARY_SQL = f"""
 SELECT json_build_object(
   'overall_rate',       (SELECT overall_rate FROM dash_progress_history WHERE region='__overall__' ORDER BY computed_at DESC LIMIT 1),
   'prev_rate',          (SELECT overall_rate FROM dash_progress_history WHERE region='__overall__' ORDER BY computed_at DESC OFFSET 1 LIMIT 1),
@@ -69,6 +69,11 @@ SELECT json_build_object(
   'cities_total',       (SELECT count(*) FROM dash_city_master WHERE boundary_geom IS NOT NULL),
   'cities_in_db',       (SELECT count(*) FROM dash_city_master WHERE boundary_geom IS NOT NULL AND in_local_db),
   'cities_osm_done',    (SELECT count(*) FROM dash_city_master WHERE boundary_geom IS NOT NULL AND osm_import_status='done'),
+  -- "done" = wiki-done OR import_rate at/above the threshold (either source counts once)
+  'cities_done',        (SELECT count(*) FROM dash_city_master m LEFT JOIN dash_city_stats s ON s.city_code = m.city_code
+                         WHERE m.boundary_geom IS NOT NULL
+                           AND (m.osm_import_status='done' OR s.import_rate >= {RATE_DONE_THRESHOLD})),
+  'rate_done_threshold', {RATE_DONE_THRESHOLD},
   'cities_measured',    (SELECT count(*) FROM dash_city_stats),
   'computed_at',        (SELECT to_char(computed_at,'YYYY-MM-DD') FROM dash_progress_history WHERE region='__overall__' ORDER BY computed_at DESC LIMIT 1),
   'trend',              (SELECT json_agg(json_build_object('date', to_char(computed_at,'YYYY-MM-DD'), 'rate', overall_rate))
@@ -88,18 +93,20 @@ SELECT json_build_object(
   'cities_total',       (SELECT cities_total FROM dash_progress_history WHERE region=%(region)s ORDER BY computed_at DESC LIMIT 1),
   'cities_in_db',       (SELECT cities_in_db FROM dash_progress_history WHERE region=%(region)s ORDER BY computed_at DESC LIMIT 1),
   'cities_osm_done',    (SELECT cities_osm_done FROM dash_progress_history WHERE region=%(region)s ORDER BY computed_at DESC LIMIT 1),
+  'cities_done',        (SELECT cities_done FROM dash_progress_history WHERE region=%(region)s ORDER BY computed_at DESC LIMIT 1),
   'computed_at',        (SELECT to_char(computed_at,'YYYY-MM-DD') FROM dash_progress_history WHERE region=%(region)s ORDER BY computed_at DESC LIMIT 1),
   'trend',              (SELECT json_agg(json_build_object('date', to_char(computed_at,'YYYY-MM-DD'), 'rate', overall_rate))
                          FROM (SELECT computed_at, overall_rate FROM dash_progress_history WHERE region=%(region)s ORDER BY computed_at) s)
 );
 """
 
-REGIONS_SQL = """
+REGIONS_SQL = f"""
 SELECT COALESCE(json_agg(r), '[]'::json) FROM (
   SELECT m.region,
     count(*) AS cities_total,
     count(*) FILTER (WHERE m.in_local_db) AS cities_in_db,
-    count(*) FILTER (WHERE m.osm_import_status='done') AS cities_done,
+    count(*) FILTER (WHERE m.osm_import_status='done') AS cities_osm_done,
+    count(*) FILTER (WHERE m.osm_import_status='done' OR s.import_rate >= {RATE_DONE_THRESHOLD}) AS cities_done,
     count(s.city_code) AS cities_measured,
     sum(s.plateau_count) AS plateau,
     sum(s.intersecting_count) AS intersecting,
@@ -123,13 +130,15 @@ SELECT COALESCE(json_agg(r), '[]'::json) FROM (
 # absent from N03). Rounded to 6 dp (~0.1 m) — plenty for drawer deep-link URLs.
 # null when neither N03 nor coverage is present; frontend then falls back to a
 # name-search URL.
-CITY_COLS = """
+CITY_COLS = f"""
   m.city_code, m.city_name, m.prefecture, m.region, m.building_lods, m.spec_versions,
   m.in_local_db, m.osm_import_status,
   to_char(m.osm_import_date,'YYYY-MM-DD') AS osm_import_date, m.osm_validated,
   round(ST_Y(m.repr_point)::numeric, 6) AS repr_lat,
   round(ST_X(m.repr_point)::numeric, 6) AS repr_lon,
-  s.plateau_count, s.osm_count, s.intersecting_count, s.import_rate
+  s.plateau_count, s.osm_count, s.intersecting_count, s.import_rate,
+  CASE WHEN m.osm_import_status='done' THEN 'wiki'
+       WHEN s.import_rate >= {RATE_DONE_THRESHOLD} THEN 'rate' END AS done_source
 """
 
 CITIES_SQL = f"""
