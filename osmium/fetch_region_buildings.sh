@@ -17,15 +17,43 @@
 # snapshot; the retry absorbs the hiccup so the batch keeps its all-or-nothing
 # consistency without being fragile to a one-off blip.
 #
+# Fallback to dated extracts: <region>-latest.osm.pbf redirects to the newest dated
+# extract (<region>-YYMMDD.osm.pbf), and since Geofabrik moved the Japan regions into
+# per-region directories (2026-11) that file is often still 404 for about a day after
+# the redirect starts pointing at it. When latest fails, the full download tries the
+# dated extracts of the previous FALLBACK_DAYS days (UTC dates), newest first.
+#
 # Usage: fetch_region_buildings.sh <region> <out.geojsonseq> [workdir]
-#   region e.g. shikoku, kanto, kansai, ... (Geofabrik asia/japan/<region>-*)
+#   region e.g. shikoku, kanto, kansai, ... (Geofabrik asia/japan/<region>/<region>-*)
 set -euo pipefail
 
 REGION="$1"; OUT="$2"; WORK="${3:-$(mktemp -d)}"
 mkdir -p "$WORK"
-FULL_URL="https://download.geofabrik.de/asia/japan/${REGION}-latest.osm.pbf"
-UPDATE_URL="https://download.geofabrik.de/asia/japan/${REGION}-updates/"
+FULL_URL="https://download.geofabrik.de/asia/japan/${REGION}/${REGION}-latest.osm.pbf"
+UPDATE_URL="https://download.geofabrik.de/asia/japan/${REGION}/updates/"
+DATED_URL_PREFIX="https://download.geofabrik.de/asia/japan/${REGION}/${REGION}-"
+FALLBACK_DAYS=3
 CACHE_DIR="${DASH_PBF_CACHE:-}"
+
+# UTC date N days ago as YYMMDD (GNU date on the server, BSD date on macOS).
+days_ago() { date -u -d "$1 days ago" +%y%m%d 2>/dev/null || date -u -v-"$1"d +%y%m%d; }
+
+# Full download of the region extract to $1: latest first, then the dated fallback.
+fetch_full() {
+  local dest="$1" n url
+  if curl -sL --fail --retry 3 --retry-delay 10 --retry-all-errors --max-time 1800 -o "$dest" "$FULL_URL"; then
+    return 0
+  fi
+  for n in $(seq 1 "$FALLBACK_DAYS"); do
+    url="${DATED_URL_PREFIX}$(days_ago "$n").osm.pbf"
+    echo "[fetch] latest unavailable -> $url"
+    if curl -sL --fail --retry 3 --retry-delay 10 --max-time 1800 -o "$dest" "$url"; then
+      return 0
+    fi
+  done
+  echo "[fetch] no ${REGION} extract from the last ${FALLBACK_DAYS} days" >&2
+  return 1
+}
 
 TMP_PBF="$WORK/${REGION}.osm.pbf"
 NEW_PBF="$WORK/${REGION}.new.osm.pbf"
@@ -39,17 +67,17 @@ if [ -n "$CACHE_DIR" ] && command -v osmupdate >/dev/null 2>&1 && [ -f "$CACHE_D
     mv -f "$NEW_PBF" "$CACHE_DIR/${REGION}.osm.pbf"
   else
     echo "[fetch] osmupdate failed -> full download"
-    curl -sL --fail --retry 3 --retry-delay 10 --retry-all-errors --max-time 1800 -o "$CACHE_DIR/${REGION}.osm.pbf" "$FULL_URL"
+    fetch_full "$CACHE_DIR/${REGION}.osm.pbf"
   fi
   PBF="$CACHE_DIR/${REGION}.osm.pbf"
 elif [ -n "$CACHE_DIR" ]; then
   mkdir -p "$CACHE_DIR"
   echo "[fetch] full download -> cache (next run incremental once osmupdate is installed)"
-  curl -sL --fail --retry 3 --retry-delay 10 --retry-all-errors --max-time 1800 -o "$CACHE_DIR/${REGION}.osm.pbf" "$FULL_URL"
+  fetch_full "$CACHE_DIR/${REGION}.osm.pbf"
   PBF="$CACHE_DIR/${REGION}.osm.pbf"
 else
   echo "[fetch] full download $FULL_URL"
-  curl -sL --fail --retry 3 --retry-delay 10 --retry-all-errors --max-time 1800 -o "$TMP_PBF" "$FULL_URL"
+  fetch_full "$TMP_PBF"
   PBF="$TMP_PBF"
 fi
 echo "[time] fetch: $((SECONDS - t))s ($(ls -lh "$PBF" | awk '{print $5}'))"
