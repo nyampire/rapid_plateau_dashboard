@@ -1,146 +1,228 @@
 # rapid_plateau_dashboard
 
-**公開URL**: <https://rapid.nyampire.info/dashboard/>
+公開URL: <https://rapid.nyampire.info/dashboard/>
 
-PLATEAU 建物データの OSM へのインポート進捗を可視化するダッシュボード。
-PLATEAU 配信 API（PostGIS + FastAPI）と同一の DB を **読み取り専用**で参照し、
-集計結果を `dash_*` テーブルに書き込む分析・可視化レイヤ。本体パイプラインとは関心分離。
+PLATEAUの建物データが、OpenStreetMap（OSM）の建物とどれだけ重なっているかを、都市ごとに集計して表示するダッシュボードです。
+PLATEAUの建物をRapidエディタに配信している[rapid_plateau_api](https://github.com/nyampire/rapid_plateau_api)と同じデータベースを使います。
+このリポジトリは集計と表示だけを受け持ち、配信のコードには手を入れません。
 
-設計の詳細は [`docs/DESIGN.md`](docs/DESIGN.md)、PoC 実測結果は [`docs/POC_RESULTS.md`](docs/POC_RESULTS.md)。
+設計は[`docs/DESIGN.md`](docs/DESIGN.md)、試作時の実測結果は[`docs/POC_RESULTS.md`](docs/POC_RESULTS.md)、画面の設計は[`docs/UI_DESIGN.md`](docs/UI_DESIGN.md)にあります。
 
-## 指標（初期スコープ）
+## 画面で見られる指標
 
-1. インポート率 — PLATEAU 建物のうち交差する OSM 建物が存在する割合（outline のみ）
-2. 対象市町村一覧 — 各都市の率・取込状態・OSM wiki 完了状態
-3. 全体進捗率 — 全国 PLATEAU 都市（306）を母集団とした充足率の時系列
+画面の上部に、全国の値を3つ表示します。
 
-## 構成
+| 指標 | 意味 |
+|---|---|
+| 建物カバレッジ率 | PLATEAUの建物のうち、OSMの建物と重なるものの割合。前回の集計との差も表示します |
+| 都市カバレッジ | PLATEAUが建物データを公開している306都市のうち、データベースに取り込まれていて、建物カバレッジ率を計算できる都市の割合 |
+| OSMインポート完了都市数 | OSM wikiで完了と記録された都市と、建物カバレッジ率が90%以上の都市の合計 |
+
+その下に並ぶのは、地方別の集計、市区町村の一覧、建物カバレッジ率で色分けした地図です。
+市区町村の一覧は、地方、状態、都市名で絞り込めます。
+政令指定都市は、区ごとの建物カバレッジ率も見られます。
+
+建物カバレッジ率の計算では、PLATEAUの建物1棟ごとに、重なるOSMの建物があるかを調べます。
+PLATEAUの建物の内側に置いた代表点がOSMの建物の内側にあるか、交差する面積がPLATEAUの建物の30%を超えると、重なりとして数えます。
+建物は外形1つを1件として数え、`building:part`に当たる部分は対象外です。
+OSMの建物がいつ描かれたかは問わないので、PLATEAUの公開前からOSMにあった建物も重なりに含みます。
+指標の詳しい定義の置き場は、画面の「指標の意味と計算方法」と`docs/DESIGN.md`の2章です。
+
+## 仕組み
+
+週に一度、バッチが外部のデータとPLATEAUの建物を突き合わせて建物カバレッジ率を計算し、`dash_*`テーブルに書き込みます。
+画面に出るのは、APIを通して読んだ`dash_*`テーブルの値です。
 
 ```
-sql/schema.sql                     dash_* テーブル定義（冪等）
-run_batch.sh                       週次バッチ統括（Phase 0-5 / flock + trap）
-
-ingest/extract_city_master.py      attributedata_2025 Excel -> 都市マスタ CSV（306都市）
-ingest/load_city_master.py         CSV -> dash_city_master（in_local_db を突合）
-ingest/parse_wiki_imports.py       OSM wiki imports_list -> dash_city_master.osm_import_*
-ingest/load_osm_buildings.py       geojsonseq -> ogr2ogr staging -> 行政界(N03)で city_code 付与（coverage フォールバック）-> dash_osm_buildings
-ingest/load_n03_boundaries.py      国土数値情報 N03 -> 政令市ward 集約 -> dash_city_master.boundary_geom（年次・任意）
-ingest/compute_stats.py            交差率算出 -> dash_city_stats + dash_progress_history（advisory_lock）
-
-osmium/fetch_region_buildings.sh   Geofabrik region pbf -> osmium export|grep building -> geojsonseq（本番フロー）
-osmium/run_city_osmium.sh          1 都市分の OSM 建物抽出（PoC 用）
-osmium/measure*.sh                 osmium のメモリ実測スクリプト
-
-api/dashboard_api.py               読み取り専用 FastAPI（/api/dashboard/*。router 相乗り or standalone）
-frontend/                          静的ダッシュボード（index.html / app.js / style.css。API 直読 + data.js フォールバック）
-frontend/stamp_cache.py            ?v= キャッシュ無効化を内容ハッシュで自動書換（デプロイ前に実行）
-
-data/plateau_city_master_2025.csv  抽出済み都市マスタ
-docs/DESIGN.md, docs/POC_RESULTS.md  設計・PoC 実測記録
+ PLATEAU 整備都市の属性リスト ── extract_city_master.py ─┐
+ (attributedata_2025)             load_city_master.py  ─┤
+                                                         │
+ OSM wiki imports_list ───────── parse_wiki_imports.py ──┤
+                                                         ├──▶ dash_* テーブル
+ 国土数値情報 行政区域 (N03) ─── load_n03_boundaries.py ─┤        │
+                                                         │        │ 読み取り専用
+ Geofabrik の地域別 pbf ── fetch_region_buildings.sh     │        ▼
+                           (osmium export | grep)        │   dashboard_api.py
+                        ── load_osm_buildings.py ────────┤   (/api/dashboard/*)
+                                                         │        │
+ PLATEAU の建物 (plateau_* テーブル) ─ compute_stats.py ─┘        ▼
+   rapid_plateau_api が取り込んだもの                         frontend/
 ```
 
-## 使い方
+`dash_*`テーブルに書き込むのはバッチだけです。
+APIは読み取り専用の接続を使い、`plateau_*`テーブルにも`dash_*`テーブルにも書き込みません。
+接続の詳細は「APIのデータベース接続」の節に書きました。
 
-依存: `osmium-tool`, `gdal-bin`(ogr2ogr), Python 3（`openpyxl` は extractor のみ、他は `psycopg2`）。
+週次のバッチ（`run_batch.sh`）は次の順に処理します。
+
+1. `--csv`を指定したときだけ、都市マスタを読み込み直します。
+2. OSM wikiから、インポートが完了した都市を読み込みます。
+3. Geofabrikの8地域ごとにpbfを取得し、建物を取り出して`dash_osm_buildings`に入れます。
+4. 都市ごと、区ごと、地方ごと、全国の建物カバレッジ率と完了都市数を計算し、履歴に記録します。
+
+バッチは`flock`で二重に起動しないようにしてあり、建物カバレッジ率の計算ではデータベースのadvisory lockも取ります。
+作業用のpbfとgeojsonseqは、バッチの終了時に削除する作りです。
+
+## ファイル構成
+
+```
+run_batch.sh                       週次バッチの本体
+sql/schema.sql                     dash_* テーブルの定義 (何度実行してもよい)
+sql/readonly_role.sql              API 用の読み取り専用ロールの作成例
+
+ingest/extract_city_master.py      属性リストの Excel から都市マスタの CSV を作る
+ingest/load_city_master.py         都市マスタの CSV を dash_city_master に入れる
+ingest/parse_wiki_imports.py       OSM wiki の imports_list から完了状況を読む
+ingest/load_osm_buildings.py       OSM の建物を dash_osm_buildings に入れ、行政界で city_code を付ける
+ingest/load_n03_boundaries.py      N03 の行政界を dash_city_master に入れる (年に一度、任意)
+ingest/compute_stats.py            建物カバレッジ率を計算し、dash_city_stats と dash_progress_history に書く
+
+osmium/fetch_region_buildings.sh   Geofabrik の地域別 pbf から建物を取り出す (バッチで使う)
+osmium/run_city_osmium.sh          1 都市分の建物を取り出す (試作用)
+osmium/measure*.sh                 osmium のメモリ使用量を測る
+
+api/dashboard_api.py               読み取り専用の API (/api/dashboard/*)
+frontend/                          画面 (index.html, app.js, style.css, data.js)
+frontend/stamp_cache.py            index.html のキャッシュ無効化用ハッシュを書き換える
+frontend/gen_mock_data.py          dash_* テーブルから data.js を作る
+
+data/plateau_city_master_2025.csv  抽出済みの都市マスタ
+data/plateau_city_master_extra.csv 属性リストに載っていない都市 (抽出時に追加する)
+
+deploy/                            週次バッチの systemd ユニットのひな形
+docs/                              設計と実測の記録
+```
+
+都市マスタのCSVは308都市分あります。
+都市カバレッジの母数の306は、そのうち行政界のポリゴンを持つ都市の数です。
+
+`plateau_city_master_extra.csv`には、PLATEAUがCityGMLを配布しているのに属性リストに載っていない都市（守口市、門真市）を入れています。
+`extract_city_master.py`は抽出の最後にこのファイルの行を足します。
+あとで属性リストに載った都市では、属性リストの値が優先です。
+
+## 手で実行する
+
+必要なものは`osmium-tool`、`gdal-bin`（`ogr2ogr`）、Python 3です。
+Pythonのパッケージは`psycopg2`が要り、`extract_city_master.py`だけ`openpyxl`も使います。
 
 ```bash
-# 1. スキーマ適用
+# 1. dash_* テーブルを作る
 psql "$DATABASE_URL" -f sql/schema.sql
 
-# 2. 都市マスタ（Excel から再抽出する場合）
-python3 ingest/extract_city_master.py --xlsx-dir <attributedata dir> -o data/plateau_city_master_2025.csv
+# 2. 都市マスタを入れる (Excel から抽出し直すときだけ extract_city_master.py を実行する)
+python3 ingest/extract_city_master.py --xlsx-dir <属性リストのディレクトリ> -o data/plateau_city_master_2025.csv
 python3 ingest/load_city_master.py data/plateau_city_master_2025.csv --postgres-url "$DATABASE_URL"
 
-# 3. OSM wiki 完了ステータス
-python3 ingest/parse_wiki_imports.py --postgres-url "$DATABASE_URL"   # --dry-run で確認可
+# 3. 行政界を入れる (年に一度。N03 の geojson / shp / gml を渡す)
+python3 ingest/load_n03_boundaries.py <N03 のファイル> --postgres-url "$DATABASE_URL"
 
-# 4. OSM 建物抽出（本番フロー: 低メモリ。詳細 docs/DESIGN.md §3.1）
-osmium export region.osm.pbf --add-unique-id=type_id \
-  --index-type=sparse_file_array --geometry-types=polygon -f geojsonseq -o - \
-  | grep '"building":' > buildings.geojsonseq
+# 4. 週次の処理をまとめて実行する
+./run_batch.sh --postgres-url "$DATABASE_URL"
+./run_batch.sh --postgres-url "$DATABASE_URL" --regions "shikoku kyushu"   # 地域を絞る
 ```
 
-> ⚠️ OSM 建物抽出に `osmium tags-filter` は使わないこと（低メモリ機（RAM ≈1GB）で OOM 寸前になる。docs/DESIGN.md §11 参照）。
+`parse_wiki_imports.py`は`--dry-run`を付けると、データベースに書かずに読み取り結果だけを表示します。
+`compute_stats.py`の`--city`は、試験のために1都市だけを計算するオプションです。
 
-> 任意（差分ダウンロード）: `DASH_PBF_CACHE=<dir>` を設定し `osmupdate`（osmctools）を導入すると、region pbf をそのディレクトリにキャッシュし replication 差分だけ取得して更新する（未設定／未導入なら従来どおりフルダウンロード）。高速化は**ダウンロード段のみ**で、export+load は毎回 region 全体を処理する。docs/DESIGN.md §9-4。
+OSMの建物を取り出すときに`osmium tags-filter`を使わないでください。
+メモリが1GBほどのサーバでは、メモリ不足で落ちる寸前まで使います（`docs/DESIGN.md`の11章）。
+`fetch_region_buildings.sh`は、ディスク上の索引を使う`osmium export`の出力を`grep`で絞る方法を取っています。
 
-## 開発・テスト
+`DASH_PBF_CACHE`にディレクトリを指定し、`osmupdate`（osmctools）を入れておくと、地域別のpbfをそのディレクトリに残し、次回からは差分だけを取得します。
+どちらかが欠けているときの取得は、毎回pbfの全体です。
+速くなるのは取得の段階だけで、建物の取り出しと読み込みで毎回地域全体を処理するのは変わりません(`docs/DESIGN.md`の9-4)。
+
+## 週次の自動実行
+
+`deploy/`に、`run_batch.sh`を週に一度動かすsystemdユニットのひな形があります。
+
+| ファイル | 役割 |
+|---|---|
+| `deploy/run_weekly.sh` | 環境変数を読んでvenvを有効にし、`run_batch.sh`を起動する |
+| `deploy/rapid-plateau-dashboard.service` | バッチを1回動かすoneshotのサービス |
+| `deploy/rapid-plateau-dashboard.timer` | 日曜01:00にサービスを起動するタイマー（`Persistent=true`） |
+| `deploy/dashboard-batch.env.example` | `DATABASE_URL`などの設定例 |
+
+```bash
+# 1. 設定ファイルを作る (データベースのパスワードを含むので、リポジトリの外に置き、権限を 600 にする)
+sudo cp deploy/dashboard-batch.env.example /etc/rapid-plateau-dashboard.env
+sudo chmod 600 /etc/rapid-plateau-dashboard.env   # DATABASE_URL などを書き込む
+
+# 2. サービスの WorkingDirectory、ExecStart、User を環境に合わせて書き換えてから置く
+sudo cp deploy/rapid-plateau-dashboard.service deploy/rapid-plateau-dashboard.timer /etc/systemd/system/
+sudo systemctl daemon-reload
+sudo systemctl enable --now rapid-plateau-dashboard.timer
+
+systemctl list-timers rapid-plateau-dashboard.timer   # 次に動く時刻
+journalctl -u rapid-plateau-dashboard.service -f      # ログ
+```
+
+バッチは数時間かかります。
+パッケージの自動更新でサービスが再起動する時間帯と重ならないよう、ホストのタイムゾーンを確かめて`OnCalendar`を決めてください。
+すぐに1回だけ動かすときは`sudo systemctl start rapid-plateau-dashboard.service`を使います。
+
+## 画面の配置
+
+`frontend/`の中身を、Webサーバの配信先（nginxの`/dashboard/`など）に置きます。
+
+```bash
+rsync -av frontend/ <配信先>/dashboard/
+```
+
+親のディレクトリのファイルを消さないよう、`--delete`は付けません。
+
+`style.css`、`app.js`、`data.js`のどれかを変えたときは、コミットの前に`index.html`のハッシュを書き換えて、同じコミットに含めます。
+
+```bash
+python3 frontend/stamp_cache.py   # index.html の ?v= を各ファイルの内容のハッシュにする
+git add frontend/index.html
+```
+
+CIは`python3 frontend/stamp_cache.py --check`でハッシュが最新かを確かめ、古ければ失敗します。
+
+画面のデータの取得先は`/api/dashboard/*`です。
+APIに届かないときは、同梱の`data.js`を代わりに表示します。
+地図の背景は、OSMFJのタイルサーバが配信するToner（`maptiler-toner-ja`）です。
+
+## APIのデータベース接続
+
+`api/dashboard_api.py`は、psycopg2の読み取り専用セッション（`set_session(readonly=True)`）で接続するので、書き込み権限のあるロールで接続しても書き込みません。
+接続先は`DASH_DATABASE_URL`を優先し、なければ`DATABASE_URL`を使います。
+
+さらに守りを固めるなら、読み取り専用のロールを作り、`DASH_DATABASE_URL`に指定します。
+作成例は[`sql/readonly_role.sql`](sql/readonly_role.sql)で、実行にはデータベースの管理者権限が必要です。
+
+APIはrapid_plateau_apiのアプリに組み込んで動かすほか、単独でも起動できます。
+
+```bash
+DATABASE_URL=... uvicorn dashboard_api:app --port 8000   # api/ で実行する
+```
+
+## 開発とテスト
 
 ```bash
 pip install -r requirements-dev.txt
 
-# 単体テスト（DB 不要）: wiki パーサ / name→code 解決 / DB 接続文字列の組み立て
+# データベースを使わないテスト
 pytest
 
-# 統合テスト（PostGIS 必須）: compute_stats 交差判定 / load_osm の coverage 付与 / API エンドポイント
+# PostGIS を使うテスト
 createdb dash_test && psql -d dash_test -c "CREATE EXTENSION postgis"
 DASH_TEST_DATABASE_URL=postgresql:///dash_test pytest
 ```
 
-`DASH_TEST_DATABASE_URL` 未設定時は DB 依存テストが自動 skip される（CI でも緑）。
+`DASH_TEST_DATABASE_URL`を設定しなければ、データベースを使うテストは飛ばされます。
+CIで動くのもこの設定です。
 
-## 週次自動化（デプロイ）
+## データソースとライセンス
 
-`run_batch.sh` を週次実行する systemd timer のテンプレートを `deploy/` に同梱:
+コードは[MIT License](LICENSE)です。
 
-- `deploy/run_weekly.sh` — env 駆動の薄いラッパ（venv 有効化 → `run_batch.sh`）
-- `deploy/rapid-plateau-dashboard.service` / `.timer` — oneshot service + 週次 timer（`Persistent=true`）
-- `deploy/dashboard-batch.env.example` — `DATABASE_URL` ほか設定例（実値は repo 外に置く）
-
-```bash
-# 1. 設定ファイル（DB パスワードを含むので repo 外・600）
-sudo cp deploy/dashboard-batch.env.example /etc/rapid-plateau-dashboard.env
-sudo chmod 600 /etc/rapid-plateau-dashboard.env   # DATABASE_URL 等を記入
-# 2. unit の WorkingDirectory / ExecStart / User を環境に合わせて編集
-sudo cp deploy/rapid-plateau-dashboard.service deploy/rapid-plateau-dashboard.timer /etc/systemd/system/
-sudo systemctl daemon-reload
-sudo systemctl enable --now rapid-plateau-dashboard.timer
-systemctl list-timers rapid-plateau-dashboard.timer   # 次回実行時刻を確認
-journalctl -u rapid-plateau-dashboard.service -f      # ログ
-```
-
-> バッチは数時間かかるため、開始時刻は日次メンテナンス（例: パッケージ更新によるサービス再起動）の時間帯を跨がないこと。ホストのタイムゾーンを確認のうえ `OnCalendar` を調整する。単発確認は `sudo systemctl start rapid-plateau-dashboard.service`。
-
-## フロントエンドのデプロイ
-
-静的フロント（`frontend/`）を配信先（nginx の `/dashboard/` など）へ配置する。`style.css` / `app.js` / `data.js` のいずれかを更新した PR では、**コミットに含める前に**キャッシュ無効化ハッシュを再計算する:
-
-```bash
-python3 frontend/stamp_cache.py          # index.html の ?v= を各アセットの内容ハッシュに更新
-git add frontend/index.html              # 同じコミットに index.html の hash 更新を含める
-```
-
-CI は `python3 frontend/stamp_cache.py --check` でこのハッシュが最新かを検査する。アセットを更新したのに `index.html` の再 stamp を忘れた PR は CI 段階で落ちる。
-
-デプロイ自体は静的配置だけ:
-
-```bash
-rsync -av frontend/ <web>/dashboard/     # 静的ファイル配置（--delete は使わない: 親を巻き込まないため）
-```
-
-フロントは API（`/api/dashboard/*`）を直読し、不通時のみ同梱 `data.js` にフォールバックする。補助地図は OSMFJ タイルサーバの Toner（`maptiler-toner-ja`、ラスタ、鍵不要）を利用。
-
-## データソース
-
-| ソース | 用途 |
-|---|---|
-| 整備都市の属性リスト（attributedata_2025, PLATEAU 公式） | 全国都市マスタ 306 |
-| OSM wiki `JA:MLIT_PLATEAU/imports_list` | インポート完了ステータス |
-| OSM 建物 extract（Geofabrik 公開 pbf） | OSM 建物ジオメトリ |
-| 国土数値情報 行政区域データ（N03, 国土交通省） | 市区町村の行政界ポリゴン（city_code 付与・地図表示） |
-| 自前 PostGIS `plateau_*`（読み取り専用） | PLATEAU 建物・対応エリア（行政界が無い都市のフォールバック） |
-
-## API の DB 接続（読み取り専用）
-
-`api/dashboard_api.py` は参照専用。接続は psycopg2 の read-only セッション（`set_session(readonly=True)`）で、万一にも書き込みできない。接続先は `DASH_DATABASE_URL`（あれば）→ `DATABASE_URL` の順で解決する。
-
-防御を強めるなら、専用の read-only ロールを作成し `DASH_DATABASE_URL` に設定する（[`sql/readonly_role.sql`](sql/readonly_role.sql)。ロール作成は DB 管理者権限が必要）。
-
-## ライセンスと帰属
-
-- **コード**: [MIT License](LICENSE)。
-- **OSM 建物データ**: © OpenStreetMap contributors（[ODbL](https://www.openstreetmap.org/copyright)）。
-- **地図タイル**: © [OpenMapTiles](https://www.openmaptiles.org/) ／ © OpenStreetMap contributors（[OSMFJ タイルサーバ](https://tile.openstreetmap.jp/) 配信）。
-- **PLATEAU 建物データ・整備都市マスタ（attributedata_2025）**: 国土交通省 [Project PLATEAU](https://www.mlit.go.jp/plateau/)（各データの利用規約に従う）。
-- **インポート完了ステータス**: OSM wiki [`JA:MLIT_PLATEAU/imports_list`](https://wiki.openstreetmap.org/wiki/JA:MLIT_PLATEAU/imports_list)。
-- **行政界**: [国土数値情報（行政区域データ N03）](https://nlftp.mlit.go.jp/ksj/gml/datalist/KsjTmplt-N03-2025.html) 国土交通省（[CC BY 4.0](https://creativecommons.org/licenses/by/4.0/deed.ja)）。
+| データ | 使い道 | 出典とライセンス |
+|---|---|---|
+| PLATEAU整備都市の属性リスト（attributedata_2025） | 全国の都市マスタ | 国土交通省[Project PLATEAU](https://www.mlit.go.jp/plateau/)（各データの利用規約に従う） |
+| PLATEAUの建物 | 建物カバレッジ率で、1棟ずつ重なりを調べる建物。行政界のない都市では、OSMの建物がどの都市にあるかを、PLATEAUの建物の範囲で決める | 同上。rapid_plateau_apiが取り込んだもの |
+| OSMの建物 | PLATEAUの建物と重なるかを調べる相手 | © OpenStreetMap contributors（[ODbL](https://www.openstreetmap.org/copyright)）。[Geofabrik](https://download.geofabrik.de/)の地域別pbfから取得 |
+| OSM wiki [`JA:MLIT_PLATEAU/imports_list`](https://wiki.openstreetmap.org/wiki/JA:MLIT_PLATEAU/imports_list) | インポートの完了状況 | OSM wiki |
+| 国土数値情報 行政区域データ（N03） | 市区町村の行政界（city_codeの付与、地図） | [国土交通省](https://nlftp.mlit.go.jp/ksj/gml/datalist/KsjTmplt-N03-2025.html)（[CC BY 4.0](https://creativecommons.org/licenses/by/4.0/deed.ja)） |
+| 地図タイル | 地図の背景 | © [OpenMapTiles](https://www.openmaptiles.org/) © OpenStreetMap contributors（[OSMFJタイルサーバ](https://tile.openstreetmap.jp/)が配信） |
